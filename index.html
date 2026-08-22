@@ -361,7 +361,8 @@ function parseTransactionReport(text){
 
   items.forEach(it => {
     it.ListingFees = otherByItem[it.ItemID] || 0;
-    it.TotalFees = it.SaleFees + it.ListingFees;
+    it.InsertionFee = 1.75;
+    it.TotalFees = it.SaleFees + it.ListingFees + it.InsertionFee;
   });
 
   return items;
@@ -414,13 +415,14 @@ function process(){
     const byCode = {};
     matched.forEach(it => {
       if(!byCode[it.ClientCode]){
-        byCode[it.ClientCode] = {ClientCode:it.ClientCode, ItemsSold:0, ItemSubtotal:0, SaleFees:0, ListingFees:0, TotalFees:0, ConsignorPayout:0, BusinessCommission:0};
+        byCode[it.ClientCode] = {ClientCode:it.ClientCode, ItemsSold:0, ItemSubtotal:0, SaleFees:0, ListingFees:0, InsertionFee:0, TotalFees:0, ConsignorPayout:0, BusinessCommission:0};
       }
       const g = byCode[it.ClientCode];
       g.ItemsSold += 1;
       g.ItemSubtotal += it.ItemSubtotal;
       g.SaleFees += it.SaleFees;
       g.ListingFees += it.ListingFees;
+      g.InsertionFee += it.InsertionFee;
       g.TotalFees += it.TotalFees;
       g.ConsignorPayout += it.ConsignorPayout;
       g.BusinessCommission += it.BusinessCommission;
@@ -625,7 +627,8 @@ function buildStatementsPDF(){
     const rows = items.map(it => [
       it.Title,
       '$' + money(it.ItemSubtotal),
-      '($' + money(it.TotalFees) + ')',
+      '($' + money(it.SaleFees + it.ListingFees) + ')',
+      '($' + money(it.InsertionFee) + ')',
       Math.round(it.ConsignorSplitPct * 100) + '%',
       '$' + money(it.ConsignorPayout),
     ]);
@@ -633,17 +636,18 @@ function buildStatementsPDF(){
     doc.autoTable({
       startY: y,
       margin: {left: margin, right: margin},
-      head: [['Item', 'Hammer Price', 'eBay Fees', 'Split', 'Payout']],
+      head: [['Item', 'Hammer Price', 'eBay Fees', 'Insertion Fee', 'Split', 'Payout']],
       body: rows,
       styles: {font:'times', fontSize:9.5, textColor: ink, cellPadding:5, lineColor: line, lineWidth:0},
       headStyles: {fillColor: ink, textColor:[255,255,255], font:'helvetica', fontStyle:'bold', fontSize:8},
       alternateRowStyles: {fillColor: pale},
       columnStyles: {
         0: {cellWidth: 'auto'},
-        1: {halign:'right', cellWidth:75},
-        2: {halign:'right', cellWidth:70},
-        3: {halign:'right', cellWidth:40},
-        4: {halign:'right', cellWidth:75},
+        1: {halign:'right', cellWidth:65},
+        2: {halign:'right', cellWidth:60},
+        3: {halign:'right', cellWidth:65},
+        4: {halign:'right', cellWidth:35},
+        5: {halign:'right', cellWidth:65},
       },
     });
 
@@ -658,7 +662,7 @@ function buildStatementsPDF(){
     const payout = items.reduce((s,it)=>s+it.ConsignorPayout,0);
 
     doc.setFont('times', 'italic'); doc.setFontSize(9); doc.setTextColor(...grey);
-    doc.text(`${items.length} item${items.length!==1?'s':''} sold  ·  Hammer total $${money(subtotal)}  ·  eBay fees ($${money(fees)})`, margin, finalY);
+    doc.text(`${items.length} item${items.length!==1?'s':''} sold  ·  Hammer total $${money(subtotal)}  ·  Total fees ($${money(fees)})`, margin, finalY);
 
     doc.setFont('times', 'bold'); doc.setFontSize(11); doc.setTextColor(...ink);
     doc.text('Total due to consignor', pageWidth - margin - 150, finalY + 22);
