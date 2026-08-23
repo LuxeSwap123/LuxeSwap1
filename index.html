@@ -181,6 +181,7 @@
       <div class="brand">LuxeSwap · Ledger</div>
       <h1>Weekly Fee Reconciliation</h1>
       <div class="sub">Upload this week's eBay Transaction Report and GarageSale export. Fees, house goods, and consignor splits are calculated automatically.</div>
+      <div style="margin-top:10px;"><a href="unpaid.html" style="color:var(--brass-light);font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.05em;">→ Unpaid Items Report</a></div>
     </div>
   </header>
 
@@ -330,7 +331,7 @@ function parseTransactionReport(text){
   const lines = text.split(/\r?\n/);
   let headerIdx = -1;
   for(let i=0;i<lines.length;i++){
-    if(lines[i].startsWith('"Transaction creation date"')){ headerIdx = i; break; }
+    if(lines[i].replace(/^"/, '').startsWith('Transaction creation date')){ headerIdx = i; break; }
   }
   if(headerIdx === -1) throw new Error('Could not find the transaction report header row.');
   const body = lines.slice(headerIdx).join('\n');
