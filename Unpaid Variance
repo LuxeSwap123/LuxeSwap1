@@ -1,0 +1,231 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>LuxeSwap — Unpaid Items Report</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0c0c0c; --paper:#f6f3ec; --paper-dim:#eae5d8;
+    --brass:#b08d57; --brass-light:#d7bd8c; --line:#3a372f; --grey:#8a8578;
+    --warn:#a5563c;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--ink);color:var(--paper);font-family:'Inter',sans-serif;line-height:1.45;padding:32px 20px 80px;}
+  .wrap{max-width:1080px;margin:0 auto;}
+  header{border-bottom:1px solid var(--line);padding-bottom:20px;margin-bottom:32px;}
+  .brand{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.18em;color:var(--brass-light);text-transform:uppercase;}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:clamp(28px,4vw,40px);margin:6px 0 0;color:var(--paper);}
+  .sub{color:var(--grey);font-size:14px;margin-top:6px;max-width:600px;}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:24px;}
+  .card{background:var(--paper);color:var(--ink);border-radius:2px;padding:20px;}
+  .card .num{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--brass);letter-spacing:.1em;}
+  .card h3{font-family:'Fraunces',serif;font-size:16px;margin:6px 0 10px;font-weight:600;}
+  .dropzone{border:1px dashed var(--line);border-radius:2px;padding:14px;text-align:center;cursor:pointer;background:#fff;font-size:13px;color:var(--grey);}
+  .dropzone.has-file{border-color:var(--brass);color:var(--ink);background:#fffdf7;}
+  .dropzone.drag{border-color:var(--brass);background:#fffaf0;}
+  input[type=file]{display:none;}
+  .filename{font-family:'IBM Plex Mono',monospace;font-size:12px;word-break:break-all;}
+  button.primary{font-family:'Inter',sans-serif;font-weight:600;font-size:14px;background:var(--brass);color:var(--ink);border:none;padding:14px 28px;border-radius:2px;cursor:pointer;}
+  button.primary:disabled{background:#4a463b;color:#8a8578;cursor:not-allowed;}
+  button.primary:hover:not(:disabled){background:var(--brass-light);}
+  .status{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--grey);margin-top:14px;min-height:18px;}
+  .status.err{color:var(--warn);}
+  section.results{margin-top:48px;display:none;}
+  .stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);margin-bottom:28px;}
+  .stat{background:var(--ink);padding:18px;}
+  .stat .label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--grey);}
+  .stat .value{font-family:'Fraunces',serif;font-size:26px;color:var(--paper);margin-top:6px;}
+  .stat.flag .value{color:var(--warn);}
+  .panel-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:var(--paper);border-bottom:1px solid var(--paper-dim);}
+  .panel-head .count{font-size:12px;color:var(--grey);}
+  button.dl{font-family:'IBM Plex Mono',monospace;font-size:11px;background:none;border:1px solid var(--ink);color:var(--ink);padding:7px 12px;cursor:pointer;letter-spacing:.05em;}
+  button.dl:hover{background:var(--ink);color:var(--paper);}
+  .tablewrap{max-height:520px;overflow:auto;background:var(--paper);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  thead th{position:sticky;top:0;background:var(--paper);text-align:left;padding:9px 12px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--grey);border-bottom:1px solid var(--ink);}
+  tbody td{padding:8px 12px;border-bottom:1px solid var(--paper-dim);font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--ink);}
+  tbody td.title{font-family:'Inter',sans-serif;font-size:13px;}
+  tbody td.num{text-align:right;}
+  tbody tr:hover{background:var(--paper-dim);}
+  footer{margin-top:40px;color:var(--grey);font-size:12px;border-top:1px solid var(--line);padding-top:16px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">LuxeSwap · Ledger</div>
+    <h1>Unpaid Items Report</h1>
+    <div class="sub">Upload your GarageSale export and an eBay Orders Report. Finds orders with no "Paid On Date" (still awaiting buyer payment) that are also on your GarageSale list.</div>
+    <div style="margin-top:10px;"><a href="index.html" style="color:var(--brass-light);font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.05em;">→ Weekly Fee Reconciliation</a></div>
+  </header>
+
+  <div class="steps">
+    <div class="card">
+      <div class="num">01</div>
+      <h3>GarageSale Export</h3>
+      <div class="dropzone" id="dz-gs">Click to choose file<br><span class="filename" id="fn-gs"></span></div>
+      <input type="file" id="file-gs" accept=".csv">
+    </div>
+    <div class="card">
+      <div class="num">02</div>
+      <h3>eBay Orders Report</h3>
+      <div class="dropzone" id="dz-ebay">Click to choose file<br><span class="filename" id="fn-ebay"></span></div>
+      <input type="file" id="file-ebay" accept=".csv">
+    </div>
+    <div class="card">
+      <div class="num">03</div>
+      <h3>Run</h3>
+      <p style="font-size:12.5px;color:var(--grey);margin:0 0 14px;">Matches on exact item title. "Awaiting payment" = the order's "Paid On Date" is blank in the Orders Report.</p>
+      <button class="primary" id="run-btn" disabled>Process files</button>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+
+  <section class="results" id="results">
+    <div class="stat-row" id="stat-row"></div>
+    <div class="panel-head"><span class="count" id="cnt-result"></span><button class="dl" id="dl-btn">Download CSV</button></div>
+    <div class="tablewrap"><table id="tbl-result"></table></div>
+  </section>
+
+  <footer>Runs entirely in your browser — no files are uploaded anywhere.</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+let gsFile=null, ebayFile=null;
+let resultRows = [];
+
+function setupDrop(dzId, inputId, fnId, onPick){
+  const dz=document.getElementById(dzId), input=document.getElementById(inputId), fn=document.getElementById(fnId);
+  dz.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => { if(input.files[0]){ fn.textContent=input.files[0].name; dz.classList.add('has-file'); onPick(input.files[0]); } });
+  ['dragover','dragenter'].forEach(ev => dz.addEventListener(ev, e=>{e.preventDefault(); dz.classList.add('drag');}));
+  ['dragleave','drop'].forEach(ev => dz.addEventListener(ev, e=>{e.preventDefault(); dz.classList.remove('drag');}));
+  dz.addEventListener('drop', e=>{ if(e.dataTransfer.files[0]){ input.files=e.dataTransfer.files; fn.textContent=e.dataTransfer.files[0].name; dz.classList.add('has-file'); onPick(e.dataTransfer.files[0]); } });
+}
+setupDrop('dz-gs','file-gs','fn-gs', f=>{ gsFile=f; checkReady(); });
+setupDrop('dz-ebay','file-ebay','fn-ebay', f=>{ ebayFile=f; checkReady(); });
+function checkReady(){ document.getElementById('run-btn').disabled = !(gsFile && ebayFile); }
+
+function num(v){ if(v===undefined||v===null) return 0; const s=String(v).trim().replace(/[$,]/g,''); if(s==='--'||s==='') return 0; const n=parseFloat(s); return isNaN(n)?0:n; }
+function money(v){ return num(v).toFixed(2); }
+
+function extractCode(desc){
+  if(!desc) return null;
+  let m = desc.match(/<!---(.*?)--->/);
+  if(m) return m[1].trim();
+  m = desc.match(/display:\s*none;?"\s*>\s*([A-Za-z0-9]+)\s*<\/span>/);
+  if(m) return m[1].trim();
+  return null;
+}
+
+function readFileText(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsText(file); }); }
+
+function parseOrdersReport(text){
+  const rows = Papa.parse(text, {skipEmptyLines:false}).data;
+  let headerIdx = -1;
+  for(let i=0;i<rows.length;i++){
+    if(rows[i].includes('Item Title') && rows[i].includes('Sales Record Number')){ headerIdx=i; break; }
+  }
+  if(headerIdx===-1) throw new Error('Could not find the Orders Report header row (expected "Sales Record Number" and "Item Title" columns).');
+  const header = rows[headerIdx];
+  const titleIdx = header.indexOf('Item Title');
+  const itemNumIdx = header.indexOf('Item Number');
+  const orderIdx = header.indexOf('Order Number');
+  const soldForIdx = header.indexOf('Sold For');
+  const paidIdx = header.indexOf('Paid On Date');
+  const items = [];
+  for(let i=headerIdx+1;i<rows.length;i++){
+    const r = rows[i];
+    const title = (r[titleIdx] || '').trim();
+    if(!title) continue;
+    items.push({
+      Title: title,
+      ItemNumber: (r[itemNumIdx] || '').trim(),
+      SoldFor: num(r[soldForIdx]),
+      PaidOnDate: (r[paidIdx] || '').trim(),
+    });
+  }
+  return items;
+}
+
+function parseGarageSale(text){
+  const rows = Papa.parse(text, {header:true, skipEmptyLines:true}).data;
+  const map = {};
+  rows.forEach(r => {
+    const title = r['Title'];
+    if(!title) return;
+    const code = r['ClientCode']!==undefined ? (r['ClientCode']||null) : extractCode(r['Description']);
+    map[title] = code;
+  });
+  return map;
+}
+
+function process(){
+  const status = document.getElementById('status');
+  status.className='status'; status.textContent='Reading files…';
+
+  Promise.all([readFileText(gsFile), readFileText(ebayFile)]).then(([gsText, ordersText]) => {
+    status.textContent='Parsing…';
+    const allOrders = parseOrdersReport(ordersText);
+    const unpaid = allOrders.filter(o => !o.PaidOnDate);
+    const gsMap = parseGarageSale(gsText);
+
+    resultRows = unpaid
+      .filter(u => gsMap.hasOwnProperty(u.Title))
+      .map(u => ({ Title: u.Title, ItemNumber: u.ItemNumber, ClientCode: gsMap[u.Title] || '(no code found)', ItemSubtotal: u.SoldFor, PayoutStatus: 'Awaiting payment' }))
+      .sort((a,b) => (a.ClientCode||'').localeCompare(b.ClientCode||''));
+
+    render(unpaid.length);
+    status.textContent = `Done — ${unpaid.length} awaiting-payment eBay orders checked against your GarageSale list.`;
+  }).catch(err => {
+    status.className='status err';
+    status.textContent='Error: ' + err.message;
+  });
+}
+
+function render(totalUnpaid){
+  document.getElementById('results').style.display='block';
+  document.getElementById('stat-row').innerHTML = `
+    <div class="stat"><div class="label">Unpaid on eBay</div><div class="value">${totalUnpaid}</div></div>
+    <div class="stat flag"><div class="label">Also on GarageSale List</div><div class="value">${resultRows.length}</div></div>
+  `;
+  document.getElementById('cnt-result').textContent = resultRows.length + ' items';
+  const tbl = document.getElementById('tbl-result');
+  if(resultRows.length===0){
+    tbl.innerHTML = '<tbody><tr><td style="padding:16px;color:#8a8578;">No matches — nothing on your GarageSale list is currently unpaid.</td></tr></tbody>';
+    return;
+  }
+  let html = '<thead><tr><th>Client Code</th><th>Item</th><th>Item Number</th><th>Hammer Price</th><th>Status</th></tr></thead><tbody>';
+  resultRows.forEach(r => {
+    html += `<tr><td>${r.ClientCode}</td><td class="title">${r.Title}</td><td>${r.ItemNumber}</td><td class="num">$${money(r.ItemSubtotal)}</td><td>${r.PayoutStatus}</td></tr>`;
+  });
+  html += '</tbody>';
+  tbl.innerHTML = html;
+}
+
+function toCSV(rows){
+  const esc = v => { if(v===undefined||v===null) return ''; const s=String(v); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const header = 'Client Code,Item,Item Number,Hammer Price,Status';
+  const lines = rows.map(r => [esc(r.ClientCode), esc(r.Title), esc(r.ItemNumber), money(r.ItemSubtotal), esc(r.PayoutStatus)].join(','));
+  return [header, ...lines].join('\n');
+}
+function downloadCSV(text, filename){
+  const blob = new Blob([text], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('run-btn').addEventListener('click', process);
+document.getElementById('dl-btn').addEventListener('click', () => {
+  downloadCSV(toCSV(resultRows), `unpaid_items_${new Date().toISOString().slice(0,10)}.csv`);
+});
+</script>
+</body>
+</html>
