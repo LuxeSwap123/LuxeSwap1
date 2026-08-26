@@ -736,7 +736,7 @@ function buildStatementsPDF(){
       if(cityLine) leftLines.push({text: cityLine, bold:false});
     }
 
-    const leftColWidth = 3.25 * 72; // matches Python's colWidths[0]
+    const leftColWidth = 2.4 * 72; // matches Python's colWidths[0]
     const leftCenterX = margin + leftColWidth / 2;
 
     const blockTopY = y;
@@ -773,8 +773,7 @@ function buildStatementsPDF(){
     const rows = items.map(it => [
       it.Title,
       '$' + money(it.ItemSubtotal),
-      '($' + money(it.SaleFees + it.ListingFees) + ')',
-      '($' + money(it.InsertionFee) + ')',
+      '($' + money(it.SaleFees + it.ListingFees + it.InsertionFee) + ')',
       Math.round(it.ConsignorSplitPct * 100) + '%',
       '$' + money(it.ConsignorPayout),
     ]);
@@ -782,18 +781,17 @@ function buildStatementsPDF(){
     doc.autoTable({
       startY: y,
       margin: {left: margin, right: margin},
-      head: [['Item', 'Hammer Price', 'eBay Fees', 'Insertion Fee', 'Split', 'Payout']],
+      head: [['Item', 'Hammer Price', 'eBay Fees', 'Split', 'Payout']],
       body: rows,
       styles: {font:'times', fontSize:9.5, textColor: ink, cellPadding:5, lineColor: line, lineWidth:0},
       headStyles: {fillColor: ink, textColor:[255,255,255], font:'helvetica', fontStyle:'bold', fontSize:8},
       alternateRowStyles: {fillColor: pale},
       columnStyles: {
         0: {cellWidth: 'auto'},
-        1: {halign:'right', cellWidth:65},
-        2: {halign:'right', cellWidth:60},
-        3: {halign:'right', cellWidth:65},
-        4: {halign:'right', cellWidth:35},
-        5: {halign:'right', cellWidth:65},
+        1: {halign:'right', cellWidth:75},
+        2: {halign:'right', cellWidth:80},
+        3: {halign:'right', cellWidth:45},
+        4: {halign:'right', cellWidth:75},
       },
     });
 
