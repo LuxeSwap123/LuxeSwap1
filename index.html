@@ -521,7 +521,12 @@ function renderTable(tblId, rows, cols){
       let v = r[c.key];
       if(c.num) v = money(num(v));
       const cls = c.key === 'Title' ? 'title' : (c.num ? 'num-col' : '');
-      return `<td class="${cls}">${v !== undefined && v !== null ? v : ''}</td>`;
+      let content = v !== undefined && v !== null ? v : '';
+      if(c.link && v){
+        const url = c.link(v);
+        content = `<a href="${url}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">${v}</a>`;
+      }
+      return `<td class="${cls}">${content}</td>`;
     }).join('') + '</tr>';
   });
   html += '</tbody>';
@@ -544,6 +549,7 @@ const HOUSE_COLS = [
 ];
 const UNMATCHED_COLS = [
   {key:'Title', label:'Item'},
+  {key:'ItemID', label:'eBay Item ID', link: (id) => `https://www.ebay.com/itm/${id}`},
   {key:'ItemSubtotal', label:'Hammer Price', num:true},
   {key:'TotalFees', label:'eBay Fees', num:true},
 ];
