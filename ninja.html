@@ -202,7 +202,7 @@
     <div class="card">
       <div class="num">02</div>
       <h3>Run</h3>
-      <p style="font-size:13px;color:var(--grey);margin:0 0 14px;">Each item is grouped under the client name label that precedes it in the export ("Name | Commission Rate: X%"), matched against the client roster to find their code. Split: individually-negotiated VIP rates first, then 90/10 for a fixed list of special-case codes, then 70/30 for codes containing NMWA, 60/40 standard otherwise. Items appearing before any name label (owner unknown from this export) go to Needs Review, not House.</p>
+      <p style="font-size:13px;color:var(--grey);margin:0 0 14px;">Each item is grouped under the client name label that precedes it in the export ("Name | Commission Rate: X%"), matched against the client roster to find their code. Split: individually-negotiated VIP rates first, then 90/10 for a fixed list of special-case codes, then 70/30 for codes containing NMWA, 60/40 standard otherwise. Items at the very top of the list with no name label above them yet are house goods, excluded.</p>
       <button class="primary" id="run-btn" disabled>Process file</button>
       <div class="status" id="status"></div>
     </div>
@@ -374,7 +374,7 @@ function expandSlashAlternates(name){
 // Returns {status: 'matched', code} | {status: 'unmatched'} | {status: 'ambiguous', codes: [...]}
 function matchConsignorName(rawName){
   const name = rawName.trim();
-  if(!name) return {status:'unmatched', reason:'missing_label'};
+  if(!name) return {status:'house'};
   const variants = expandSlashAlternates(name);
   for(const variant of variants){
     const key = normalizeName(variant);
@@ -498,9 +498,7 @@ function process(){
       } else {
         it.Reason = match.status === 'ambiguous'
           ? 'Ambiguous: matches multiple codes (' + match.codes.join(', ') + ')'
-          : match.reason === 'missing_label'
-            ? 'Client name label missing from export (likely cut off before this item)'
-            : 'No match found for "' + it.ConsignerRaw + '"';
+          : 'No match found for "' + it.ConsignerRaw + '"';
         reviewItems.push(it);
       }
     });
