@@ -202,7 +202,7 @@
     <div class="card">
       <div class="num">02</div>
       <h3>Run</h3>
-      <p style="font-size:13px;color:var(--grey);margin:0 0 14px;">Consignor name (from the "Consigner" column) is matched against the client roster to find their code, then split individually-negotiated VIP rates first, then 90/10 for a fixed list of special-case codes, then 70/30 for codes containing NMWA, 60/40 standard otherwise. Blank consigner = house goods, excluded.</p>
+      <p style="font-size:13px;color:var(--grey);margin:0 0 14px;">Each item is grouped under the client name label that precedes it in the export ("Name | Commission Rate: X%"), matched against the client roster to find their code. Split: individually-negotiated VIP rates first, then 90/10 for a fixed list of special-case codes, then 70/30 for codes containing NMWA, 60/40 standard otherwise. Items appearing before any name label (owner unknown from this export) go to Needs Review, not House.</p>
       <button class="primary" id="run-btn" disabled>Process file</button>
       <div class="status" id="status"></div>
     </div>
@@ -374,7 +374,7 @@ function expandSlashAlternates(name){
 // Returns {status: 'matched', code} | {status: 'unmatched'} | {status: 'ambiguous', codes: [...]}
 function matchConsignorName(rawName){
   const name = rawName.trim();
-  if(!name) return {status:'house'};
+  if(!name) return {status:'unmatched', reason:'missing_label'};
   const variants = expandSlashAlternates(name);
   for(const variant of variants){
     const key = normalizeName(variant);
@@ -389,13 +389,39 @@ function matchConsignorName(rawName){
 
 function parseSiteCSV(text){
   const parsed = Papa.parse(text, {header:true, skipEmptyLines:true});
-  const rows = parsed.data.filter(r => (r['Status'] || '').trim() === 'Sold');
-  return rows.map(r => ({
-    ConsignerRaw: (r['Consigner'] || '').trim(),
-    ItemNum: (r['Item #'] || '').trim(),
-    Title: (r['Item Lead'] || '').trim(),
-    HammerPrice: num(r['Final Sale Price($)']),
-  }));
+  const rows = parsed.data;
+
+  const items = [];
+  let currentName = null; // items appearing before the first name label have no known owner
+
+  for(const r of rows){
+    const itemNum = (r['Item #'] || '').trim();
+    const soldDateField = (r['Sold Date'] || '').trim();
+    const status = (r['Status'] || '').trim();
+
+    if(soldDateField === 'Sales Subtotals:'){
+      break; // end of report
+    }
+    if(soldDateField === 'Client Total:'){
+      continue; // subtotal row, doesn't change ownership
+    }
+    const nameMatch = itemNum.match(/^(.*?)\s*\|\s*Commission Rate:/i);
+    if(nameMatch){
+      currentName = nameMatch[1].trim();
+      continue;
+    }
+    // ordinary item row
+    if(itemNum && status === 'Paid'){
+      items.push({
+        ConsignerRaw: currentName || '', // blank = appeared before any name label, needs review
+        ItemNum: itemNum,
+        Title: (r['Item Lead'] || '').trim(),
+        HammerPrice: num(r['Final Sale Price($)']),
+      });
+    }
+  }
+
+  return items;
 }
 
 let siteFile = null;
@@ -472,7 +498,9 @@ function process(){
       } else {
         it.Reason = match.status === 'ambiguous'
           ? 'Ambiguous: matches multiple codes (' + match.codes.join(', ') + ')'
-          : 'No match found for "' + it.ConsignerRaw + '"';
+          : match.reason === 'missing_label'
+            ? 'Client name label missing from export (likely cut off before this item)'
+            : 'No match found for "' + it.ConsignerRaw + '"';
         reviewItems.push(it);
       }
     });
