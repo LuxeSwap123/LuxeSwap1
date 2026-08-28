@@ -371,9 +371,22 @@ function expandSlashAlternates(name){
   return variants.map(v => v.join(' '));
 }
 
+// If a name is exactly two identical halves separated by a space
+// (e.g. "MATTHEW/BILLY ROLAND MATTHEW/BILLY ROLAND"), collapse to one.
+function collapseDuplicateName(name){
+  const words = name.trim().split(/\s+/);
+  if(words.length % 2 === 0 && words.length > 0){
+    const half = words.length / 2;
+    const firstHalf = words.slice(0, half).join(' ');
+    const secondHalf = words.slice(half).join(' ');
+    if(firstHalf && firstHalf === secondHalf) return firstHalf;
+  }
+  return name.trim();
+}
+
 // Returns {status: 'matched', code} | {status: 'unmatched'} | {status: 'ambiguous', codes: [...]}
 function matchConsignorName(rawName){
-  const name = rawName.trim();
+  const name = collapseDuplicateName(rawName.trim());
   if(!name) return {status:'house'};
   const variants = expandSlashAlternates(name);
   for(const variant of variants){
