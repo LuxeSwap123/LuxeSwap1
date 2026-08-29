@@ -676,6 +676,10 @@ function renderTextToImage(text, font, color, letterSpacing){
 }
 
 function buildStatementsPDF(){
+  const weekInput = prompt('Which week are you printing? (e.g. "34" or "Aug 25-31")');
+  if(weekInput === null) return; // cancelled
+  const weekLabel = weekInput.trim();
+
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:'pt', format:'letter'});
   const margin = 54;
@@ -762,6 +766,12 @@ function buildStatementsPDF(){
     doc.setFont('times', 'normal'); doc.setFontSize(11); doc.setTextColor(...ink);
     doc.text(periodLabel, pageWidth - margin, rightY, {align:'right'});
     rightY += 12;
+
+    if(weekLabel){
+      doc.setFont('times', 'italic'); doc.setFontSize(10); doc.setTextColor(...grey);
+      doc.text('Week ' + weekLabel, pageWidth - margin, rightY, {align:'right'});
+      rightY += 13;
+    }
 
     y = Math.max(leftY, rightY) + 4;
 
