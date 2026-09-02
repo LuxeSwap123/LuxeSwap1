@@ -1,0 +1,947 @@
+
+<title>eBay Shipping Manager · LuxeSwap</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,450;9..144,560;9..144,650&family=Source+Sans+3:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+
+<style>
+  :root{
+    --bg: #f3efe6;
+    --bg-deep: #eae3d3;
+    --surface: #fffdf8;
+    --surface-2: #f6f0e4;
+    --ink: #211d17;
+    --ink-soft: #4a4436;
+    --muted: #7d7561;
+    --line: #e1d8c4;
+    --line-strong: #cfc3a6;
+    --accent: #93672a;
+    --accent-ink: #ffffff;
+    --accent-soft: #f1e2c6;
+    --good: #2f7a4c;
+    --good-soft: #e2efe3;
+    --warn: #b06a1e;
+    --warn-soft: #f6e8d3;
+    --bad: #a4392f;
+    --bad-soft: #f5e0dd;
+    --shadow: 0 1px 2px rgba(33,29,23,.06), 0 8px 24px -12px rgba(33,29,23,.18);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg: #14120f;
+      --bg-deep: #0d0c0a;
+      --surface: #1d1a15;
+      --surface-2: #26221b;
+      --ink: #f1ead9;
+      --ink-soft: #cec3a9;
+      --muted: #93876e;
+      --line: #38321f;
+      --line-strong: #4a4227;
+      --accent: #d3a45a;
+      --accent-ink: #1c1509;
+      --accent-soft: #362b16;
+      --good: #6ec78e;
+      --good-soft: #1c2e21;
+      --warn: #e2a75a;
+      --warn-soft: #362a15;
+      --bad: #e08277;
+      --bad-soft: #37201d;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg: #14120f;
+    --bg-deep: #0d0c0a;
+    --surface: #1d1a15;
+    --surface-2: #26221b;
+    --ink: #f1ead9;
+    --ink-soft: #cec3a9;
+    --muted: #93876e;
+    --line: #38321f;
+    --line-strong: #4a4227;
+    --accent: #d3a45a;
+    --accent-ink: #1c1509;
+    --accent-soft: #362b16;
+    --good: #6ec78e;
+    --good-soft: #1c2e21;
+    --warn: #e2a75a;
+    --warn-soft: #362a15;
+    --bad: #e08277;
+    --bad-soft: #37201d;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.6);
+  }
+
+  *{ box-sizing: border-box; }
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap{ max-width: 920px; margin: 0 auto; padding: 48px 24px 140px; }
+
+  .eyebrow{
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    display:flex; align-items:center; gap:8px;
+  }
+  .eyebrow .mark{
+    font-family: "Fraunces", serif;
+    font-style: italic;
+    font-weight: 560;
+    letter-spacing: 0;
+    text-transform: none;
+    font-size: 15px;
+    color: var(--ink);
+  }
+  h1{
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 650;
+    font-size: clamp(28px, 4vw, 38px);
+    line-height: 1.1;
+    letter-spacing: -.01em;
+    margin: 10px 0 10px;
+    text-wrap: balance;
+  }
+  .sub{
+    color: var(--ink-soft);
+    font-size: 15.5px;
+    line-height: 1.55;
+    max-width: 62ch;
+    margin: 0 0 6px;
+  }
+  .sub b{ color: var(--ink); font-weight: 600; }
+
+  section{ margin-top: 34px; }
+  .section-label{
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    margin-bottom: 10px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .section-label::after{
+    content:""; flex:1; height:1px; background: var(--line);
+  }
+
+  .zones{ display:grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px){ .zones{ grid-template-columns: 1fr; } }
+
+  .zone{
+    background: var(--surface);
+    border: 1.5px dashed var(--line-strong);
+    border-radius: 10px;
+    padding: 22px 20px;
+    box-shadow: var(--shadow);
+    transition: border-color .15s ease, background .15s ease;
+    position: relative;
+  }
+  .zone.drag{ border-color: var(--accent); background: var(--accent-soft); }
+  .zone .kicker{
+    font-weight: 700; font-size: 14.5px; color: var(--ink);
+    display:flex; align-items:center; gap:8px; margin-bottom: 4px;
+  }
+  .zone .kicker .chip{
+    font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.06em;
+    background: var(--surface-2); color: var(--muted); border:1px solid var(--line);
+    border-radius: 999px; padding: 2px 8px;
+  }
+  .zone p{ margin: 6px 0 14px; font-size: 13.5px; color: var(--muted); line-height:1.5; }
+  .zone input[type=file]{ display:none; }
+  .zone .btn-line{ display:flex; gap:10px; flex-wrap:wrap; }
+  .filelist{ margin-top: 14px; display:flex; flex-direction:column; gap:6px; }
+  .filerow{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    background: var(--surface-2); border:1px solid var(--line); border-radius:7px;
+    padding: 7px 10px; font-size: 12.5px;
+  }
+  .filerow .name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink-soft); }
+  .filerow .pages{ font-family:"IBM Plex Mono",monospace; color:var(--muted); white-space:nowrap; }
+  .filerow button{ border:none; background:none; color: var(--bad); cursor:pointer; font-size: 15px; line-height:1; padding:0 2px; }
+  .zone-status{ margin-top:12px; font-size:12.5px; color: var(--muted); font-family:"IBM Plex Mono",monospace; }
+  .zone-status.ready{ color: var(--good); }
+
+  button.btn{
+    font-family: "Source Sans 3", sans-serif;
+    font-weight: 600; font-size: 13.5px;
+    border-radius: 7px; border: 1px solid var(--line-strong);
+    background: var(--surface); color: var(--ink);
+    padding: 8px 14px; cursor:pointer;
+    transition: transform .08s ease, border-color .12s ease, background .12s ease;
+  }
+  button.btn:hover{ border-color: var(--accent); }
+  button.btn:active{ transform: translateY(1px); }
+  button.btn.primary{
+    background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+  }
+  button.btn.primary:hover{ filter: brightness(1.05); }
+  button.btn:disabled{ opacity:.45; cursor:not-allowed; }
+  button.btn.small{ padding: 4px 9px; font-size:12px; }
+  button.icon-btn{
+    border:1px solid var(--line); background:var(--surface-2); color:var(--ink-soft);
+    border-radius:6px; width:26px; height:24px; cursor:pointer; font-size:12px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  button.icon-btn:hover{ border-color: var(--accent); color: var(--accent); }
+  button.icon-btn:disabled{ opacity:.3; cursor:default; }
+
+  .build-row{ display:flex; align-items:center; gap:14px; margin-top:22px; flex-wrap:wrap; }
+  .build-row .hint{ font-size:12.5px; color: var(--muted); }
+
+  .summary{
+    display:flex; gap:10px; flex-wrap:wrap; margin-bottom: 16px;
+  }
+  .stat{
+    background: var(--surface); border:1px solid var(--line); border-radius:9px;
+    padding: 10px 14px; box-shadow: var(--shadow); min-width: 120px;
+  }
+  .stat .n{ font-family:"IBM Plex Mono",monospace; font-size: 19px; font-weight:600; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .stat .l{ font-size: 11px; color: var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-top:2px; }
+  .stat.warn .n{ color: var(--warn); }
+  .stat.good .n{ color: var(--good); }
+
+  .order-toggle{
+    display:inline-flex; border:1px solid var(--line-strong); border-radius:8px; overflow:hidden;
+    font-family:"IBM Plex Mono",monospace; font-size:12px;
+  }
+  .order-toggle button{
+    border:none; background:var(--surface); color:var(--ink-soft); padding:7px 12px; cursor:pointer;
+  }
+  .order-toggle button.active{ background: var(--accent); color: var(--accent-ink); font-weight:600; }
+
+  .table-card{
+    background: var(--surface); border:1px solid var(--line); border-radius: 10px;
+    box-shadow: var(--shadow); overflow: hidden;
+  }
+  .table-scroll{ overflow-x:auto; }
+  table.pairs{ width:100%; border-collapse: collapse; font-size: 13px; min-width: 780px; }
+  table.pairs th{
+    text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.07em;
+    color: var(--muted); font-weight:600; padding: 10px 12px; border-bottom:1px solid var(--line);
+    background: var(--surface-2); position: sticky; top:0;
+  }
+  table.pairs td{ padding: 9px 12px; border-bottom:1px solid var(--line); vertical-align: top; }
+  table.pairs tr:last-child td{ border-bottom:none; }
+  table.pairs tr:nth-child(even) td{ background: color-mix(in srgb, var(--surface-2) 45%, transparent); }
+  .rownum{ font-family:"IBM Plex Mono",monospace; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .excerpt{ font-size:12px; color: var(--ink-soft); max-width: 220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .excerpt.empty{ color: var(--muted); font-style: italic; }
+  select.pairsel{
+    font-family:"IBM Plex Mono",monospace; font-size:12.5px; padding:5px 7px;
+    border-radius:6px; border:1px solid var(--line-strong); background: var(--surface); color: var(--ink);
+    min-width: 108px;
+  }
+  .badge{
+    font-family:"IBM Plex Mono",monospace; font-size:10.5px; font-weight:600; letter-spacing:.03em;
+    padding: 3px 8px; border-radius:999px; display:inline-block; white-space:nowrap;
+  }
+  .badge.high{ background: var(--good-soft); color: var(--good); }
+  .badge.med{ background: var(--warn-soft); color: var(--warn); }
+  .badge.low{ background: var(--bad-soft); color: var(--bad); }
+  .badge.none{ background: var(--surface-2); color: var(--muted); }
+  .rowops{ display:flex; gap:4px; }
+  .dupe-flag{ color: var(--bad); font-size:11px; margin-top:3px; }
+
+  .unmatched-card{
+    margin-top: 14px; background: var(--warn-soft); border:1px solid var(--line-strong);
+    border-radius: 9px; padding: 14px 16px; font-size: 13px; color: var(--ink-soft);
+  }
+  .unmatched-card b{ color: var(--ink); }
+
+  .footnote{ font-size: 12.5px; color: var(--muted); margin-top: 12px; line-height:1.6; }
+
+  .dock{
+    position: fixed; left:0; right:0; bottom:0;
+    background: var(--surface); border-top: 1px solid var(--line);
+    box-shadow: 0 -8px 24px -16px rgba(0,0,0,.25);
+    padding: 14px 24px; display:flex; align-items:center; gap:16px; justify-content:center;
+    transform: translateY(100%); transition: transform .2s ease;
+    z-index: 20;
+  }
+  .dock.show{ transform: translateY(0); }
+  .dock .inner{ max-width: 920px; width:100%; display:flex; align-items:center; gap:16px; flex-wrap:wrap; justify-content:space-between; }
+  .dock .msg{ font-size:12.5px; color: var(--muted); }
+  .dock .msg b{ color: var(--ink); }
+  .dock-actions{ display:flex; align-items:center; gap:12px; }
+  button.btn.big{ padding: 11px 22px; font-size: 14.5px; }
+
+  .status-line{ font-size:12.5px; color: var(--muted); margin-top:6px; display:flex; align-items:center; gap:8px; }
+  .dot{ width:7px; height:7px; border-radius:50%; background: var(--muted); display:inline-block; }
+  .dot.ok{ background: var(--good); }
+  .dot.bad{ background: var(--bad); }
+
+  .toast{
+    position: fixed; right:20px; bottom:96px; max-width: 340px;
+    background: var(--surface); border:1px solid var(--line-strong); box-shadow: var(--shadow);
+    border-radius: 9px; padding: 12px 14px; font-size:13px; color: var(--ink);
+    transform: translateY(12px); opacity:0; pointer-events:none; transition: all .18s ease;
+    z-index: 30;
+  }
+  .toast.show{ transform: translateY(0); opacity:1; }
+  .toast.err{ border-color: var(--bad); }
+  .toast.ok{ border-color: var(--good); }
+
+  a.reset-link{ color: var(--muted); font-size:12.5px; cursor:pointer; text-decoration: underline; text-underline-offset: 2px; }
+  .hide{ display:none !important; }
+  ::selection{ background: var(--accent-soft); }
+</style>
+
+<div class="wrap">
+
+  <div class="eyebrow"><span class="mark">LuxeSwap</span> · shipping tools</div>
+  <h1>eBay Shipping Manager</h1>
+  <p class="sub">Upload the bulk shipping-label PDF and the bulk packing-slip PDF from eBay Seller Hub. This builds <b>one print-ready file</b> with each label immediately followed by its matching packing slip, so the printer hands you a collated stack instead of two piles to sort by hand.</p>
+  <div style="margin:14px 0 6px;display:flex;gap:12px;flex-wrap:wrap;">
+    <a href="index.html" style="display:inline-block;color:#d7bd8c;font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.05em;border:1px solid #b08d57;padding:8px 16px;border-radius:2px;text-decoration:none;">→ eBay Invoice Processing</a>
+    <a href="unpaid.html" style="display:inline-block;color:#d7bd8c;font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.05em;border:1px solid #b08d57;padding:8px 16px;border-radius:2px;text-decoration:none;">→ eBay Unpaid Item Checker</a>
+    <a href="ninja.html" style="display:inline-block;color:#d7bd8c;font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.05em;border:1px solid #b08d57;padding:8px 16px;border-radius:2px;text-decoration:none;">→ AuctionNinja Reconciliation</a>
+    <a href="shipping.html" style="display:inline-block;color:#d7bd8c;font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.05em;border:1px solid #b08d57;padding:8px 16px;border-radius:2px;text-decoration:none;">→ eBay Shipping Manager</a>
+  </div>
+
+  <section>
+    <div class="section-label">1 · Upload batches</div>
+    <div class="zones">
+      <div class="zone" id="zone-labels">
+        <div class="kicker">Shipping labels <span class="chip">PDF</span></div>
+        <p>From Seller Hub → Orders → select orders → <em>Print shipping labels</em>. Sheets with 2 labels per page are split automatically.</p>
+        <div class="btn-line">
+          <button class="btn" onclick="document.getElementById('file-labels').click()">Choose file</button>
+          <input type="file" id="file-labels" accept="application/pdf" multiple>
+        </div>
+        <div class="filelist" id="files-labels"></div>
+        <div class="zone-status" id="status-labels">No file yet</div>
+      </div>
+      <div class="zone" id="zone-slips">
+        <div class="kicker">Packing slips <span class="chip">PDF</span></div>
+        <p>From Seller Hub → Orders → same selection → <em>Print packing slips</em>. One slip per page.</p>
+        <div class="btn-line">
+          <button class="btn" onclick="document.getElementById('file-slips').click()">Choose file</button>
+          <input type="file" id="file-slips" accept="application/pdf" multiple>
+        </div>
+        <div class="filelist" id="files-slips"></div>
+        <div class="zone-status" id="status-slips">No file yet</div>
+      </div>
+    </div>
+
+    <div class="build-row">
+      <button class="btn primary" id="btn-build" disabled onclick="buildTable()">Build match table →</button>
+      <span class="hint" id="build-hint">Upload both a labels PDF and a packing-slips PDF to continue.</span>
+    </div>
+  </section>
+
+  <section id="section-results" class="hide">
+    <div class="section-label">2 · Check the pairing</div>
+
+    <div class="summary" id="summary"></div>
+
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
+      <div class="order-toggle" id="order-toggle">
+        <button data-order="slip-first" class="active">Slip → Label</button>
+        <button data-order="label-first">Label → Slip</button>
+      </div>
+      <a class="reset-link" onclick="resetAll()">start over</a>
+    </div>
+
+    <div class="table-card">
+      <div class="table-scroll">
+        <table class="pairs">
+          <thead>
+            <tr>
+              <th style="width:34px">#</th>
+              <th>Packing slip page</th>
+              <th>Matched label page</th>
+              <th style="width:90px">Match</th>
+              <th style="width:44px"></th>
+            </tr>
+          </thead>
+          <tbody id="pairs-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="unmatched-card hide" id="unmatched-card"></div>
+
+    <p class="footnote">Matching is done by reading the text on each page (recipient name, address, order or tracking number) and, where a batch was printed in a different order than it was selected, by cross-checking that shared text. Rows marked <b>Unverified</b> are paired purely by page order — double-check those, and any label built from a scanned/image-only thermal PDF, before printing. Use the dropdown on any row to fix a pairing by hand.</p>
+  </section>
+
+</div>
+
+<div class="dock" id="dock">
+  <div class="inner">
+    <div class="msg" id="dock-msg"></div>
+    <div class="dock-actions">
+      <span class="status-line" id="dl-status"><span class="dot" id="dl-dot"></span><span id="dl-status-text">Checking file-saving…</span></span>
+      <button class="btn primary big" id="btn-download" disabled onclick="downloadMerged()">Download merged PDF</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  const STOPWORDS = new Set(("ORDER NUMBER NO SHIP SHIPPING TO FROM QTY QUANTITY ITEM ITEMS PRICE TOTAL THANK THANKS YOU SELLER BUYER USPS UPS FEDEX PRIORITY MAIL FIRST CLASS PACKAGE PACK SLIP PACKING WEIGHT DATE EBAY SOLD VIA SERVICE GROUND EXPRESS RETAIL RATE POSTAGE PAID PERMIT USA UNITED STATES ADDRESS SERVICE REQUESTED RETURN SIGNATURE CONFIRM CONFIRMATION TRACKING NUMBER ID REF REFERENCE THIS SIDE UP ATTN CARE").split(" "));
+
+  const state = {
+    labels: { files: [], pages: [] },   // pages: {fileIdx, pageIdxInFile, text}
+    slips:  { files: [], pages: [] },
+    rows: [],       // one per slip page: { slipIdx, labelIdx|null, score, smart }
+    order: "slip-first",
+    downloadsApi: null
+  };
+
+  // ---------- text utilities ----------
+  function normalize(t){ return (t||"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").replace(/\s+/g," ").trim(); }
+  function tokenSet(t){
+    const out = new Set();
+    for (const w of normalize(t).split(" ")) if (w.length>=3 && !STOPWORDS.has(w)) out.add(w);
+    return out;
+  }
+  function extractIdentifiers(t){
+    const s = new Set();
+    const raw = t||"";
+    let m;
+    const reOrder = /\b\d{2}-\d{5}-\d{5}\b/g;
+    while((m = reOrder.exec(raw))) s.add(m[0]);
+    const reUps = /\b1Z[0-9A-Z]{16}\b/g;
+    while((m = reUps.exec(raw))) s.add(m[0]);
+    const reLong = /\b\d{18,26}\b/g;
+    while((m = reLong.exec(raw))) s.add(m[0]);
+    const reFedex = /\b\d{12}\b|\b\d{15}\b/g;
+    while((m = reFedex.exec(raw))) s.add(m[0]);
+    return s;
+  }
+  function extractZips(t){
+    const s = new Set();
+    let m; const re = /\b\d{5}(?:-\d{4})?\b/g;
+    while((m = re.exec(t||""))) s.add(m[0].slice(0,5));
+    return s;
+  }
+  function hasIntersect(a,b){ for (const x of a) if (b.has(x)) return true; return false; }
+
+  function pairScore(labelText, slipText){
+    if (!labelText || !slipText) return 0;
+    const lt = tokenSet(labelText), st = tokenSet(slipText);
+    let overlap = 0; for (const t of lt) if (st.has(t)) overlap++;
+    const denom = (lt.size + st.size - overlap) || 1;
+    const jaccard = overlap/denom;
+    let score = jaccard*100;
+    if (hasIntersect(extractIdentifiers(labelText), extractIdentifiers(slipText))) score += 800;
+    if (hasIntersect(extractZips(labelText), extractZips(slipText))) score += 40;
+    return score;
+  }
+  function confidenceOf(score, hasText){
+    if (!hasText) return {cls:"none", label:"Unverified"};
+    if (score >= 400) return {cls:"high", label:"High"};
+    if (score >= 30) return {cls:"med", label:"Medium"};
+    return {cls:"low", label:"Low"};
+  }
+  function excerptOf(t){
+    const c = (t||"").replace(/\s+/g," ").trim();
+    return c ? (c.length>110 ? c.slice(0,110)+"…" : c) : "";
+  }
+
+  // ---------- geometry: find embedded-image regions on a page ----------
+  // eBay sometimes prints 2 shipping labels on one letter-size sheet (top half / bottom
+  // half). Each label is one big raster image, so we walk the page's low-level drawing
+  // ops, track the current transform matrix, and record where each image actually lands
+  // on the page. Two or more large, non-overlapping images => split the page into one
+  // cropped sub-page per image, in top-to-bottom order. Packing slips carry only small
+  // photos/QR codes/logos, which fall under the size threshold and are left alone.
+  function mulMatrix(m1, m2){
+    return [
+      m1[0]*m2[0] + m1[1]*m2[2],
+      m1[0]*m2[1] + m1[1]*m2[3],
+      m1[2]*m2[0] + m1[3]*m2[2],
+      m1[2]*m2[1] + m1[3]*m2[3],
+      m1[4]*m2[0] + m1[5]*m2[2] + m2[4],
+      m1[4]*m2[1] + m1[5]*m2[3] + m2[5]
+    ];
+  }
+  function applyM(m, x, y){ return [ m[0]*x + m[2]*y + m[4], m[1]*x + m[3]*y + m[5] ]; }
+
+  async function getImageRegions(page, pageW, pageH){
+    let opList;
+    try { opList = await page.getOperatorList(); } catch(e){ return []; }
+    const OPS = pdfjsLib.OPS;
+    const imageOps = new Set([OPS.paintImageXObject, OPS.paintJpegXObject, OPS.paintImageMaskXObject,
+      OPS.paintImageXObjectRepeat, OPS.paintInlineImageXObject].filter(x => x!=null));
+    let ctm = [1,0,0,1,0,0];
+    const stack = [];
+    const boxes = [];
+    for (let i=0; i<opList.fnArray.length; i++){
+      const fn = opList.fnArray[i], args = opList.argsArray[i];
+      if (fn === OPS.save) stack.push(ctm.slice());
+      else if (fn === OPS.restore) { if (stack.length) ctm = stack.pop(); }
+      else if (fn === OPS.transform) ctm = mulMatrix(args, ctm);
+      else if (imageOps.has(fn)){
+        const pts = [[0,0],[1,0],[0,1],[1,1]].map(([x,y]) => applyM(ctm, x, y));
+        const xs = pts.map(p=>p[0]), ys = pts.map(p=>p[1]);
+        const x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys);
+        if (x1>x0 && y1>y0) boxes.push({x0,y0,x1,y1});
+      }
+    }
+    const pageArea = pageW*pageH;
+    const sig = boxes.filter(b => ((b.x1-b.x0)*(b.y1-b.y0))/pageArea >= 0.15);
+    const merged = [];
+    for (const b of sig){
+      const hit = merged.find(g => !(b.x1<g.x0 || b.x0>g.x1 || b.y1<g.y0 || b.y0>g.y1));
+      if (hit){ hit.x0=Math.min(hit.x0,b.x0); hit.y0=Math.min(hit.y0,b.y0); hit.x1=Math.max(hit.x1,b.x1); hit.y1=Math.max(hit.y1,b.y1); }
+      else merged.push({...b});
+    }
+    merged.sort((a,b) => b.y0 - a.y0); // top of page first
+    return merged;
+  }
+
+  // ---------- file handling ----------
+  async function extractPages(file){
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+
+    // Pass 1: scan every page for label-sized images first, so we learn the sheet's
+    // template (e.g. "2 labels per page") from whichever pages are full, before deciding
+    // how to handle any page that only has one label on it.
+    const pageData = [];
+    for (let p=1; p<=pdf.numPages; p++){
+      const page = await pdf.getPage(p);
+      const vp = page.getViewport({ scale: 1 });
+      const content = await page.getTextContent();
+      const regions = await getImageRegions(page, vp.width, vp.height);
+      pageData.push({ pageIdxInFile: p-1, vpW: vp.width, vpH: vp.height, content, regions });
+    }
+    const nTemplate = Math.max(1, ...pageData.map(pd => pd.regions.length));
+
+    // Pass 2: emit one output unit per label, sized to its slot in that template — so a
+    // page with only one label filled (the odd one out at the end of a batch) gets cropped
+    // to that same slot instead of being left as a full, oversized sheet.
+    const out = [];
+    for (const pd of pageData){
+      if (nTemplate < 2 || pd.regions.length === 0){
+        const text = pd.content.items.map(i => i.str).join(" ");
+        out.push({ pageIdxInFile: pd.pageIdxInFile, text, crop: null });
+        continue;
+      }
+      const bandH = pd.vpH / nTemplate;
+      for (const r of pd.regions){
+        const cy = (r.y0 + r.y1) / 2;
+        const bandIndex = Math.min(nTemplate-1, Math.max(0, Math.floor((pd.vpH - cy) / bandH)));
+        const top = pd.vpH - bandIndex*bandH, bottom = pd.vpH - (bandIndex+1)*bandH;
+        const text = pd.content.items.filter(it => {
+          const y = it.transform[5];
+          return y >= bottom-2 && y <= top+2;
+        }).map(it => it.str).join(" ");
+        out.push({ pageIdxInFile: pd.pageIdxInFile, text, crop: { left:0, bottom, right: pd.vpW, top } });
+      }
+    }
+    return out;
+  }
+
+  function assignSubLabels(bucket){
+    const groups = {};
+    bucket.pages.forEach((p, idx) => {
+      const key = p.fileIdx+":"+p.pageIdxInFile;
+      (groups[key] = groups[key]||[]).push(idx);
+    });
+    Object.values(groups).forEach(idxs => {
+      idxs.forEach((idx,i) => { bucket.pages[idx].subLabel = idxs.length>1 ? ("("+(i+1)+" of "+idxs.length+")") : null; });
+    });
+  }
+
+  function fmtPageLabel(side, globalIdx){
+    const rec = state[side].pages[globalIdx];
+    if (!rec) return "—";
+    const base = state[side].files.length > 1 ? ("F"+(rec.fileIdx+1)+"·p"+(rec.pageIdxInFile+1)) : ("p"+(rec.pageIdxInFile+1));
+    return rec.subLabel ? (base+" "+rec.subLabel) : base;
+  }
+
+  async function handleFiles(side, fileListArr){
+    const bucket = state[side];
+    for (const f of fileListArr){
+      if (!/pdf$/i.test(f.type) && !/\.pdf$/i.test(f.name)) continue;
+      bucket.files.push(f);
+    }
+    if (state.rows.length){
+      // file set changed after a table was already built — invalidate it rather than risk stale indices
+      state.rows = [];
+      document.getElementById("section-results").classList.add("hide");
+      document.getElementById("dock").classList.remove("show");
+      toast("Files changed — click “Build match table” again.", false);
+    }
+    renderFileList(side);
+    setStatus(side, "Reading pages…", false);
+    // (re)extract everything from scratch to keep global indices simple & correct
+    bucket.pages = [];
+    for (let fi=0; fi<bucket.files.length; fi++){
+      try {
+        const regions = await extractPages(bucket.files[fi]);
+        regions.forEach(r => bucket.pages.push({ fileIdx: fi, ...r }));
+      } catch(e){
+        toast("Couldn't read \""+bucket.files[fi].name+"\" — is it a valid PDF?", true);
+      }
+      renderFileList(side);
+    }
+    assignSubLabels(bucket);
+    const withText = bucket.pages.filter(p => tokenSet(p.text).size > 0 || extractIdentifiers(p.text).size>0).length;
+    const splitCount = bucket.pages.filter(p => p.subLabel).length;
+    const rawPages = new Set(bucket.pages.map(p => p.fileIdx+":"+p.pageIdxInFile)).size;
+    setStatus(side,
+      bucket.pages.length + (bucket.pages.length===1?" item":" items") + " ready"
+      + (rawPages !== bucket.pages.length ? " (from "+rawPages+" sheet"+(rawPages===1?"":"s")+")" : "")
+      + (bucket.pages.length && withText===0 ? " · no extractable text (image-based)" : ""),
+      true);
+    updateBuildButton();
+  }
+
+  function renderFileList(side){
+    const el = document.getElementById("files-"+side);
+    const bucket = state[side];
+    el.innerHTML = "";
+    bucket.files.forEach((f, idx) => {
+      const items = bucket.pages.filter(p=>p.fileIdx===idx);
+      const rawPages = new Set(items.map(p=>p.pageIdxInFile)).size;
+      const label = items.length===0 ? "…" : (rawPages===items.length ? (rawPages+" pg") : (rawPages+" pg · "+items.length+" items"));
+      const row = document.createElement("div");
+      row.className = "filerow";
+      row.innerHTML = "<span class='name' title='"+escapeHtml(f.name)+"'>"+escapeHtml(f.name)+"</span>" +
+        "<span class='pages'>"+label+"</span>" +
+        "<button title='Remove'>×</button>";
+      row.querySelector("button").onclick = () => {
+        bucket.files.splice(idx,1);
+        handleFiles(side, []); // re-render with existing files, re-extract
+      };
+      el.appendChild(row);
+    });
+  }
+
+  function setStatus(side, text, ready){
+    const el = document.getElementById("status-"+side);
+    el.textContent = text;
+    el.className = "zone-status" + (ready ? " ready" : "");
+  }
+
+  function updateBuildButton(){
+    const ok = state.labels.pages.length>0 && state.slips.pages.length>0;
+    document.getElementById("btn-build").disabled = !ok;
+    document.getElementById("build-hint").textContent = ok
+      ? state.labels.pages.length+" label page(s) · "+state.slips.pages.length+" packing-slip page(s) — ready to match."
+      : "Upload both a labels PDF and a packing-slips PDF to continue.";
+  }
+
+  // ---------- matching ----------
+  function buildTable(){
+    const L = state.labels.pages, S = state.slips.pages;
+    const scores = [];
+    for (let li=0; li<L.length; li++){
+      for (let si=0; si<S.length; si++){
+        const sc = pairScore(L[li].text, S[si].text);
+        if (sc > 0) scores.push({li, si, score: sc});
+      }
+    }
+    scores.sort((a,b) => b.score - a.score);
+    const usedL = new Set(), usedS = new Set();
+    const smartAssign = new Map(); // si -> {li, score}
+    const MIN_SCORE = 15;
+    for (const {li, si, score} of scores){
+      if (score < MIN_SCORE) break;
+      if (usedL.has(li) || usedS.has(si)) continue;
+      usedL.add(li); usedS.add(si);
+      smartAssign.set(si, {li, score});
+    }
+
+    const rows = [];
+    const claimedLi = new Set();
+    for (let si=0; si<S.length; si++){
+      let labelIdx = null, score = 0, smart = false;
+      if (smartAssign.has(si)){
+        const a = smartAssign.get(si);
+        labelIdx = a.li; score = a.score; smart = (a.li !== si);
+        claimedLi.add(a.li);
+      } else if (si < L.length && !claimedLi.has(si)) {
+        labelIdx = si;
+        score = pairScore(L[si].text, S[si].text);
+        claimedLi.add(si);
+      }
+      rows.push({ slipIdx: si, labelIdx, score, smart });
+    }
+    // resolve any accidental duplicate label usage among naive (non-smart) rows
+    const seen = new Set();
+    for (const r of rows){
+      if (r.labelIdx==null) continue;
+      if (seen.has(r.labelIdx)){ r.labelIdx = null; r.score = 0; r.dupe = true; }
+      else seen.add(r.labelIdx);
+    }
+
+    state.rows = rows;
+    document.getElementById("section-results").classList.remove("hide");
+    render();
+    checkDownloads();
+  }
+
+  function render(){
+    renderSummary();
+    renderRows();
+    renderUnmatched();
+    document.getElementById("dock").classList.add("show");
+    document.getElementById("dock-msg").innerHTML = "<b>"+state.rows.length+"</b> pairs queued for the merged PDF.";
+  }
+
+  function renderSummary(){
+    const L = state.labels.pages.length, S = state.slips.pages.length;
+    const matched = state.rows.filter(r=>r.labelIdx!=null).length;
+    const high = state.rows.filter(r=> r.labelIdx!=null && confidenceOf(r.score, true).cls==="high").length;
+    const el = document.getElementById("summary");
+    el.innerHTML = "";
+    const stats = [
+      {n:L, l:"Labels"},
+      {n:S, l:"Packing slips"},
+      {n:matched, l:"Paired", cls: matched===S ? "good":"warn"},
+      {n:high, l:"Verified by content", cls:"good"}
+    ];
+    stats.forEach(s => {
+      const d = document.createElement("div");
+      d.className = "stat" + (s.cls ? " "+s.cls : "");
+      d.innerHTML = "<div class='n'>"+s.n+"</div><div class='l'>"+s.l+"</div>";
+      el.appendChild(d);
+    });
+  }
+
+  function labelOptionsHtml(selected){
+    let html = "<option value=''"+(selected==null?" selected":"")+">— none —</option>";
+    for (let li=0; li<state.labels.pages.length; li++){
+      html += "<option value='"+li+"'"+(selected===li?" selected":"")+">"+fmtPageLabel("labels", li)+"</option>";
+    }
+    return html;
+  }
+
+  function renderRows(){
+    const body = document.getElementById("pairs-body");
+    body.innerHTML = "";
+    const usedLi = {};
+    state.rows.forEach(r => { if (r.labelIdx!=null) usedLi[r.labelIdx] = (usedLi[r.labelIdx]||0)+1; });
+
+    state.rows.forEach((r, idx) => {
+      const S = state.slips.pages[r.slipIdx];
+      const L = r.labelIdx!=null ? state.labels.pages[r.labelIdx] : null;
+      const hasText = !!(S && tokenSet(S.text).size>0) && !!(L && tokenSet(L.text).size>0);
+      const conf = r.labelIdx==null ? {cls:"none", label:"No label"} : confidenceOf(r.score, hasText || extractIdentifiers(L.text).size>0);
+      const dupe = r.labelIdx!=null && usedLi[r.labelIdx] > 1;
+
+      const tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td class='rownum'>"+(idx+1)+"</td>" +
+        "<td><div class='rownum' style='color:var(--ink)'>"+fmtPageLabel("slips", r.slipIdx)+"</div><div class='excerpt"+(S&&S.text.trim()?"":" empty")+"'>"+(escapeHtml(excerptOf(S&&S.text)) || "No extractable text")+"</div></td>" +
+        "<td><select class='pairsel' data-idx='"+idx+"'>"+labelOptionsHtml(r.labelIdx)+"</select>" +
+          "<div class='excerpt"+(L&&L.text.trim()?"":" empty")+"' style='margin-top:5px'>"+(L ? (escapeHtml(excerptOf(L.text)) || "No extractable text (image-based label)") : "")+"</div>" +
+          (dupe ? "<div class='dupe-flag'>⚠ also used on another row</div>" : "") +
+          (r.smart ? "<div class='dupe-flag' style='color:var(--good)'>↳ reordered by content match</div>" : "") +
+        "</td>" +
+        "<td><span class='badge "+conf.cls+"'>"+conf.label+"</span></td>" +
+        "<td><div class='rowops'>" +
+          "<button class='icon-btn' data-up='"+idx+"' "+(idx===0?"disabled":"")+" title='Move up'>↑</button>" +
+          "<button class='icon-btn' data-down='"+idx+"' "+(idx===state.rows.length-1?"disabled":"")+" title='Move down'>↓</button>" +
+        "</div></td>";
+      body.appendChild(tr);
+    });
+
+    body.querySelectorAll("select.pairsel").forEach(sel => {
+      sel.addEventListener("change", (e) => {
+        const idx = +e.target.dataset.idx;
+        const v = e.target.value;
+        state.rows[idx].labelIdx = v==="" ? null : +v;
+        state.rows[idx].smart = false;
+        state.rows[idx].score = state.rows[idx].labelIdx!=null
+          ? pairScore(state.labels.pages[state.rows[idx].labelIdx].text, state.slips.pages[state.rows[idx].slipIdx].text)
+          : 0;
+        render();
+      });
+    });
+    body.querySelectorAll("[data-up]").forEach(b => b.addEventListener("click", e => {
+      const i = +e.target.dataset.up;
+      [state.rows[i-1], state.rows[i]] = [state.rows[i], state.rows[i-1]];
+      render();
+    }));
+    body.querySelectorAll("[data-down]").forEach(b => b.addEventListener("click", e => {
+      const i = +e.target.dataset.down;
+      [state.rows[i+1], state.rows[i]] = [state.rows[i], state.rows[i+1]];
+      render();
+    }));
+  }
+
+  function renderUnmatched(){
+    const used = new Set(state.rows.filter(r=>r.labelIdx!=null).map(r=>r.labelIdx));
+    const extra = [];
+    for (let li=0; li<state.labels.pages.length; li++) if (!used.has(li)) extra.push(li);
+    const card = document.getElementById("unmatched-card");
+    if (extra.length===0){ card.classList.add("hide"); return; }
+    card.classList.remove("hide");
+    card.innerHTML = "<b>"+extra.length+" extra label page"+(extra.length===1?"":"s")+"</b> "+
+      "didn't get paired with a packing slip (labels PDF has more pages than the packing-slips PDF, or a row was set to “none”). "+
+      "They'll be appended at the end of the merged PDF: "+ extra.map(li=>fmtPageLabel("labels", li)).join(", ") + ". " +
+      "Assign one to a row above via its dropdown if it belongs there.";
+  }
+
+  // ---------- order toggle ----------
+  document.getElementById("order-toggle").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-order]");
+    if (!btn) return;
+    state.order = btn.dataset.order;
+    document.querySelectorAll("#order-toggle button").forEach(b => b.classList.toggle("active", b===btn));
+  });
+
+  // ---------- drag & drop / input wiring ----------
+  function wireZone(side, inputId, zoneId){
+    const input = document.getElementById(inputId);
+    const zone = document.getElementById(zoneId);
+    input.addEventListener("change", () => { handleFiles(side, Array.from(input.files)); input.value = ""; });
+    ["dragenter","dragover"].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add("drag"); }));
+    ["dragleave","drop"].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove("drag"); }));
+    zone.addEventListener("drop", e => {
+      const files = Array.from(e.dataTransfer.files || []);
+      if (files.length) handleFiles(side, files);
+    });
+  }
+  wireZone("labels", "file-labels", "zone-labels");
+  wireZone("slips", "file-slips", "zone-slips");
+
+  window.buildTable = buildTable;
+  window.resetAll = function(){
+    state.labels = { files: [], pages: [] };
+    state.slips = { files: [], pages: [] };
+    state.rows = [];
+    renderFileList("labels"); renderFileList("slips");
+    setStatus("labels","No file yet", false); setStatus("slips","No file yet", false);
+    updateBuildButton();
+    document.getElementById("section-results").classList.add("hide");
+    document.getElementById("dock").classList.remove("show");
+  };
+
+  // ---------- merge & download ----------
+  async function buildMergedPdfBytes(){
+    const out = await PDFLib.PDFDocument.create();
+    const labelDocCache = new Map(), slipDocCache = new Map();
+    async function getDoc(side, fileIdx){
+      const cache = side==="labels" ? labelDocCache : slipDocCache;
+      if (cache.has(fileIdx)) return cache.get(fileIdx);
+      const file = state[side].files[fileIdx];
+      const buf = await file.arrayBuffer();
+      const doc = await PDFLib.PDFDocument.load(buf);
+      cache.set(fileIdx, doc);
+      return doc;
+    }
+    function setBox(page, name, left, bottom, right, top){
+      if (name === "MediaBox" && typeof page.setMediaBox === "function"){ page.setMediaBox(left, bottom, right-left, top-bottom); return; }
+      if (name === "CropBox" && typeof page.setCropBox === "function"){ page.setCropBox(left, bottom, right-left, top-bottom); return; }
+      // fall back to writing the raw PDF box array directly if the helper method isn't present
+      page.node.set(PDFLib.PDFName.of(name), out.context.obj([left, bottom, right, top]));
+    }
+    async function copyPage(side, globalIdx){
+      const rec = state[side].pages[globalIdx];
+      const doc = await getDoc(side, rec.fileIdx);
+      if (side === "labels" && rec.crop){
+        // This label shared its source sheet with a sibling label (or was the lone one on a
+        // page that fits eBay's 2-up template). Build it a full 11"x8.5" landscape sheet
+        // (792x612pt) of its own: rotate the source page 90° and slide it so just this
+        // label's band lands upright in the left half, then mask the right half blank white
+        // so the sibling's content (or anything the rotation swept into view) never shows.
+        // Doing this as a raw content-stream transform (embed the untouched source page,
+        // concat our own matrix, draw at natural size) — rather than pdf-lib's drawPage
+        // width/height/rotate options — avoids the silent re-scaling that broke an earlier
+        // version of this (see project notes: embedPage+drawPage-with-options corrupted size
+        // and orientation).
+        const srcPage = doc.getPage(rec.pageIdxInFile);
+        const embedded = await out.embedPage(srcPage);
+        const sheetW = 792, sheetH = 612;
+        const newPage = out.addPage([sheetW, sheetH]);
+        const top = rec.crop.top; // this label's band, measured from the bottom of the original source page
+        newPage.pushOperators(
+          PDFLib.pushGraphicsState(),
+          PDFLib.concatTransformationMatrix(0, 1, -1, 0, top, 0)
+        );
+        newPage.drawPage(embedded, { x: 0, y: 0 });
+        newPage.pushOperators(PDFLib.popGraphicsState());
+        newPage.drawRectangle({ x: sheetW/2, y: 0, width: sheetW/2, height: sheetH, color: PDFLib.rgb(1,1,1) });
+        return;
+      }
+      // Packing slips, and any label that was already alone on its own full page (no 2-up
+      // template detected for that file) — copy the whole page as-is. Copying this way
+      // (rather than re-stamping the content onto a fresh page) preserves the content stream,
+      // including any orientation baked into the artwork, exactly.
+      const [pg] = await out.copyPages(doc, [rec.pageIdxInFile]);
+      if (rec.crop){
+        const { left, bottom, right, top } = rec.crop;
+        setBox(pg, "MediaBox", left, bottom, right, top);
+        setBox(pg, "CropBox", left, bottom, right, top);
+      }
+      out.addPage(pg);
+    }
+    for (const r of state.rows){
+      if (state.order === "label-first"){
+        if (r.labelIdx!=null) await copyPage("labels", r.labelIdx);
+        await copyPage("slips", r.slipIdx);
+      } else {
+        await copyPage("slips", r.slipIdx);
+        if (r.labelIdx!=null) await copyPage("labels", r.labelIdx);
+      }
+    }
+    const used = new Set(state.rows.filter(r=>r.labelIdx!=null).map(r=>r.labelIdx));
+    for (let li=0; li<state.labels.pages.length; li++) if (!used.has(li)) await copyPage("labels", li);
+    return out.save();
+  }
+
+  window.downloadMerged = async function(){
+    const btn = document.getElementById("btn-download");
+    const original = btn.textContent;
+    btn.disabled = true; btn.textContent = "Building PDF…";
+    try {
+      const bytes = await buildMergedPdfBytes();
+      if (!state.downloadsApi){ toast("File saving isn't available in this view.", true); return; }
+      const stamp = new Date().toISOString().slice(0,10);
+      await state.downloadsApi.save({ filename: "labels_and_packing_slips_"+stamp+".pdf", data: bytes });
+      toast("Saved — "+state.rows.length+" order(s), ready to print.", false);
+    } catch(err){
+      const code = err && err.code;
+      if (code === "declined"){ /* silent */ }
+      else if (code === "too_large") toast("That merged file is over 16 MB — try a smaller batch.", true);
+      else if (code === "rate_limited") toast("A save prompt is already open — try again in a moment.", true);
+      else toast("Couldn't build the PDF: " + (err && err.message ? err.message : "unknown error"), true);
+    } finally {
+      btn.disabled = false; btn.textContent = original;
+    }
+  };
+
+  async function checkDownloads(){
+    const dot = document.getElementById("dl-dot"), text = document.getElementById("dl-status-text"), btn = document.getElementById("btn-download");
+    try {
+      const api = window.claude ? await window.claude.use("downloads") : null;
+      state.downloadsApi = api;
+      if (api){ dot.className="dot ok"; text.textContent="Ready to save"; btn.disabled = state.rows.length===0; }
+      else { dot.className="dot bad"; text.textContent="Saving unavailable in this view"; btn.disabled = true; }
+    } catch(e){ dot.className="dot bad"; text.textContent="Saving unavailable"; btn.disabled = true; }
+  }
+  checkDownloads();
+
+  // ---------- small helpers ----------
+  function escapeHtml(s){ return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+  let toastTimer;
+  function toast(msg, isErr){
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.className = "toast show" + (isErr ? " err" : " ok");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 4200);
+  }
+
+})();
+</script>
