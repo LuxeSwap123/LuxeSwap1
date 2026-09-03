@@ -132,7 +132,7 @@
     content:""; flex:1; height:1px; background: var(--line);
   }
 
-  .zones{ display:grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .zones{ display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
   @media (max-width: 640px){ .zones{ grid-template-columns: 1fr; } }
 
   .zone{
@@ -329,6 +329,16 @@
         <div class="filelist" id="files-slips"></div>
         <div class="zone-status" id="status-slips">No file yet</div>
       </div>
+      <div class="zone" id="zone-garagesale">
+        <div class="kicker">GarageSale export <span class="chip">CSV</span> <span class="chip" style="opacity:.7">optional</span></div>
+        <p>Reads each item's client/consignor code from the hidden marker GarageSale embeds in the listing description, and prints it on that item's row of the packing slip.</p>
+        <div class="btn-line">
+          <button class="btn" onclick="document.getElementById('file-garagesale').click()">Choose file</button>
+          <input type="file" id="file-garagesale" accept=".csv,text/csv">
+        </div>
+        <div class="filelist" id="files-garagesale"></div>
+        <div class="zone-status" id="status-garagesale">No file yet</div>
+      </div>
     </div>
 
     <div class="build-row">
@@ -399,7 +409,8 @@
     slips:  { files: [], pages: [] },
     rows: [],       // one per slip page: { slipIdx, labelIdx|null, score, smart }
     order: "slip-first",
-    downloadsApi: null
+    downloadsApi: null,
+    garagesale: { fileName: null, lookup: null, total: 0, withCode: 0 }  // optional: title -> client code
   };
 
   // ---------- text utilities ----------
@@ -639,6 +650,90 @@
       : "Upload both a labels PDF and a packing-slips PDF to continue.";
   }
 
+  // ---------- garagesale client codes (optional 3rd upload) ----------
+  // GarageSale's CSV export embeds each item's client/consignor code as a hidden
+  // <span style="display:none;">CODE</span> inside the Description field's HTML (confirmed
+  // against a real export). We match it to a packing-slip row by item title — the slip's
+  // title is the GarageSale title plus a trailing " (Item ID: NNNN)", which we strip before
+  // comparing — same normalize() used for label/slip matching, so quote-style/whitespace
+  // differences wash out on both sides identically.
+  const CODE_SPAN_RE = /<span\s+style="display:\s*none;?\s*">([^<]*)<\/span>/i;
+  function titleKey(t){ return normalize((t||"").replace(/\s*\(Item ID:\s*\d+\)\s*$/i, "")); }
+
+  function parseCSV(text){
+    // Minimal RFC4180 parser: handles quoted fields with embedded commas, newlines, and
+    // doubled-quote escaping — needed because GarageSale's Description column is raw
+    // multi-line HTML.
+    const rows = []; let row = [], field = "", inQuotes = false;
+    for (let i=0; i<text.length; i++){
+      const c = text[i];
+      if (inQuotes){
+        if (c === '"'){ if (text[i+1] === '"'){ field += '"'; i++; } else inQuotes = false; }
+        else field += c;
+      } else {
+        if (c === '"') inQuotes = true;
+        else if (c === ','){ row.push(field); field = ""; }
+        else if (c === '\r'){ /* skip; \n below ends the row */ }
+        else if (c === '\n'){ row.push(field); rows.push(row); row = []; field = ""; }
+        else field += c;
+      }
+    }
+    if (field.length || row.length){ row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  async function handleGaragesaleFile(file){
+    setGsStatus("Reading…", false);
+    try {
+      const text = await file.text();
+      const table = parseCSV(text);
+      if (table.length < 2) throw new Error("empty");
+      const header = table[0].map(h => h.trim());
+      const titleCol = header.indexOf("Title"), descCol = header.indexOf("Description");
+      if (titleCol === -1 || descCol === -1) throw new Error("missing columns");
+      const lookup = new Map();
+      let total = 0, withCode = 0;
+      for (let i=1; i<table.length; i++){
+        const r = table[i];
+        if (!r || r.length < 2) continue;
+        const title = (r[titleCol]||"").trim();
+        if (!title) continue;
+        total++;
+        const m = CODE_SPAN_RE.exec(r[descCol]||"");
+        if (m && m[1].trim()){ lookup.set(titleKey(title), m[1].trim()); withCode++; }
+      }
+      state.garagesale = { fileName: file.name, lookup, total, withCode };
+      setGsStatus(withCode+" of "+total+" item(s) have a client code — matched to packing slips by title.", true);
+    } catch(e){
+      state.garagesale = { fileName: null, lookup: null, total: 0, withCode: 0 };
+      setGsStatus("Couldn't read that as a GarageSale export (expects Title + Description columns).", false);
+    }
+    renderGaragesaleFile();
+  }
+
+  function renderGaragesaleFile(){
+    const el = document.getElementById("files-garagesale");
+    el.innerHTML = "";
+    if (!state.garagesale.fileName) return;
+    const row = document.createElement("div");
+    row.className = "filerow";
+    row.innerHTML = "<span class='name' title='"+escapeHtml(state.garagesale.fileName)+"'>"+escapeHtml(state.garagesale.fileName)+"</span>" +
+      "<span class='pages'>"+state.garagesale.withCode+" codes</span>" +
+      "<button title='Remove'>×</button>";
+    row.querySelector("button").onclick = () => {
+      state.garagesale = { fileName: null, lookup: null, total: 0, withCode: 0 };
+      renderGaragesaleFile();
+      setGsStatus("No file yet", false);
+    };
+    el.appendChild(row);
+  }
+
+  function setGsStatus(text, ready){
+    const el = document.getElementById("status-garagesale");
+    el.textContent = text;
+    el.className = "zone-status" + (ready ? " ready" : "");
+  }
+
   // ---------- matching ----------
   function buildTable(){
     const L = state.labels.pages, S = state.slips.pages;
@@ -815,6 +910,21 @@
   wireZone("labels", "file-labels", "zone-labels");
   wireZone("slips", "file-slips", "zone-slips");
 
+  (function wireGaragesaleZone(){
+    const input = document.getElementById("file-garagesale");
+    const zone = document.getElementById("zone-garagesale");
+    input.addEventListener("change", () => {
+      if (input.files[0]) handleGaragesaleFile(input.files[0]);
+      input.value = "";
+    });
+    ["dragenter","dragover"].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add("drag"); }));
+    ["dragleave","drop"].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove("drag"); }));
+    zone.addEventListener("drop", e => {
+      const f = (e.dataTransfer.files || [])[0];
+      if (f) handleGaragesaleFile(f);
+    });
+  })();
+
   window.buildTable = buildTable;
   window.resetAll = function(){
     state.labels = { files: [], pages: [] };
@@ -831,6 +941,8 @@
   async function buildMergedPdfBytes(){
     const out = await PDFLib.PDFDocument.create();
     const labelDocCache = new Map(), slipDocCache = new Map();
+    const slipPdfjsCache = new Map();
+    let stampFont = null;
     async function getDoc(side, fileIdx){
       const cache = side==="labels" ? labelDocCache : slipDocCache;
       if (cache.has(fileIdx)) return cache.get(fileIdx);
@@ -839,6 +951,66 @@
       const doc = await PDFLib.PDFDocument.load(buf);
       cache.set(fileIdx, doc);
       return doc;
+    }
+    // Stamp this slip page's matched client code(s) onto it — one per item row, positioned
+    // between the item title and the Quantity column. Re-reads the ORIGINAL file's text
+    // positions via pdf.js (word coordinates aren't kept around from the earlier extraction
+    // pass) rather than guessing fixed coordinates, so it holds up across different item
+    // counts/title lengths per slip. Validated against real multi-item packing slips before
+    // shipping: the Quantity column's x-position anchors each item row (a lone digit aligned
+    // to that column = one row), and the row's title text is whatever sits to its left,
+    // bounded halfway to the neighboring rows above/below.
+    async function stampClientCodes(pg, rec){
+      let pdoc = slipPdfjsCache.get(rec.fileIdx);
+      if (!pdoc){
+        const file = state.slips.files[rec.fileIdx];
+        const buf = await file.arrayBuffer();
+        pdoc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+        slipPdfjsCache.set(rec.fileIdx, pdoc);
+      }
+      const page = await pdoc.getPage(rec.pageIdxInFile + 1);
+      const content = await page.getTextContent();
+      const items = content.items.map(it => ({
+        str: it.str, x0: it.transform[4], x1: it.transform[4] + it.width, y: it.transform[5]
+      }));
+      // Derive the Quantity column's x-position from the quantity VALUES themselves (small
+      // standalone integers, one per item row) rather than trusting the word "Quantity" to
+      // stay its own separate text item — some PDF generators emit a whole table row as one
+      // text-showing operation, which would make simple text-label matching unreliable. A
+      // real quantity column repeats at the same x on every row; a stray digit elsewhere on
+      // the page (order date, tracking number) won't cluster the way a real column does, so
+      // we take the x (rounded) shared by the most items as the column position.
+      const digitItems = items.filter(it => /^\d{1,2}$/.test(it.str.trim()));
+      if (!digitItems.length) return; // nothing to anchor on — skip rather than guess
+      const buckets = new Map();
+      for (const it of digitItems){
+        const key = Math.round(it.x0);
+        buckets.set(key, (buckets.get(key) || 0) + 1);
+      }
+      let colX = null, best = 0;
+      for (const [key, count] of buckets){ if (count > best){ best = count; colX = key; } }
+      const anchors = digitItems.filter(it => Math.abs(it.x0 - colX) < 3).sort((a,b) => b.y - a.y); // topmost first
+      if (!anchors.length) return;
+      // Title-zone text: left of the quantity column, and to the right of the slip's other
+      // left-margin fields (ship-to block, order/date lines) so those never get pulled in.
+      const titleWords = items.filter(it => it.x0 >= 60 && it.x1 < colX - 15);
+      if (!stampFont) stampFont = await out.embedFont(PDFLib.StandardFonts.HelveticaBold);
+      const size = 9;
+      for (let i=0; i<anchors.length; i++){
+        const ay = anchors[i].y;
+        // Bound each row halfway to its neighbors; outer rows get a generous but bounded
+        // ±40pt cap (roomier than any real item title block) instead of unbounded, so a
+        // single-item slip can't accidentally sweep in header/footer text.
+        const hi = i>0 ? (anchors[i-1].y + ay)/2 : ay + 40;
+        const lo = i<anchors.length-1 ? (ay + anchors[i+1].y)/2 : ay - 40;
+        const rowWords = titleWords.filter(w => w.y <= hi && w.y >= lo)
+          .sort((a,b) => (b.y - a.y) || (a.x0 - b.x0));
+        const title = rowWords.map(w => w.str).join(" ").replace(/\s+/g," ").trim();
+        const code = state.garagesale.lookup.get(titleKey(title));
+        if (!code) continue;
+        const w = stampFont.widthOfTextAtSize(code, size);
+        pg.drawText(code, { x: colX - 10 - w, y: ay, size, font: stampFont, color: PDFLib.rgb(0,0,0) });
+      }
     }
     function setBox(page, name, left, bottom, right, top){
       if (name === "MediaBox" && typeof page.setMediaBox === "function"){ page.setMediaBox(left, bottom, right-left, top-bottom); return; }
@@ -887,6 +1059,9 @@
         const { left, bottom, right, top } = rec.crop;
         setBox(pg, "MediaBox", left, bottom, right, top);
         setBox(pg, "CropBox", left, bottom, right, top);
+      }
+      if (side === "slips" && state.garagesale.lookup && state.garagesale.lookup.size){
+        await stampClientCodes(pg, rec);
       }
       out.addPage(pg);
     }
