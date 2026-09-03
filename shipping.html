@@ -6,25 +6,25 @@
 
 <style>
   :root{
-    --bg: #f3efe6;
-    --bg-deep: #eae3d3;
-    --surface: #fffdf8;
-    --surface-2: #f6f0e4;
-    --ink: #211d17;
-    --ink-soft: #4a4436;
-    --muted: #7d7561;
-    --line: #e1d8c4;
-    --line-strong: #cfc3a6;
-    --accent: #93672a;
-    --accent-ink: #ffffff;
-    --accent-soft: #f1e2c6;
-    --good: #2f7a4c;
-    --good-soft: #e2efe3;
-    --warn: #b06a1e;
-    --warn-soft: #f6e8d3;
-    --bad: #a4392f;
-    --bad-soft: #f5e0dd;
-    --shadow: 0 1px 2px rgba(33,29,23,.06), 0 8px 24px -12px rgba(33,29,23,.18);
+    --bg: #0c0c0c;
+    --bg-deep: #0d0c0a;
+    --surface: #1d1a15;
+    --surface-2: #26221b;
+    --ink: #f1ead9;
+    --ink-soft: #cec3a9;
+    --muted: #93876e;
+    --line: #38321f;
+    --line-strong: #4a4227;
+    --accent: #d3a45a;
+    --accent-ink: #1c1509;
+    --accent-soft: #362b16;
+    --good: #6ec78e;
+    --good-soft: #1c2e21;
+    --warn: #e2a75a;
+    --warn-soft: #362a15;
+    --bad: #e08277;
+    --bad-soft: #37201d;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.6);
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
@@ -900,15 +900,33 @@
     return out.save();
   }
 
+  // Plain-browser fallback save: works anywhere (GitHub Pages, a local file, etc.),
+  // not just inside Claude's artifact viewer. Used whenever the Claude "downloads"
+  // capability isn't present.
+  function browserDownload(filename, bytes){
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
   window.downloadMerged = async function(){
     const btn = document.getElementById("btn-download");
     const original = btn.textContent;
     btn.disabled = true; btn.textContent = "Building PDF…";
     try {
       const bytes = await buildMergedPdfBytes();
-      if (!state.downloadsApi){ toast("File saving isn't available in this view.", true); return; }
       const stamp = new Date().toISOString().slice(0,10);
-      await state.downloadsApi.save({ filename: "labels_and_packing_slips_"+stamp+".pdf", data: bytes });
+      const filename = "labels_and_packing_slips_"+stamp+".pdf";
+      if (state.downloadsApi){
+        await state.downloadsApi.save({ filename, data: bytes });
+      } else {
+        browserDownload(filename, bytes);
+      }
       toast("Saved — "+state.rows.length+" order(s), ready to print.", false);
     } catch(err){
       const code = err && err.code;
@@ -926,9 +944,10 @@
     try {
       const api = window.claude ? await window.claude.use("downloads") : null;
       state.downloadsApi = api;
-      if (api){ dot.className="dot ok"; text.textContent="Ready to save"; btn.disabled = state.rows.length===0; }
-      else { dot.className="dot bad"; text.textContent="Saving unavailable in this view"; btn.disabled = true; }
-    } catch(e){ dot.className="dot bad"; text.textContent="Saving unavailable"; btn.disabled = true; }
+    } catch(e){ state.downloadsApi = null; }
+    // Either the Claude-artifact save API or the plain-browser fallback always works,
+    // so saving is always available — the button is only ever gated on having rows to save.
+    dot.className="dot ok"; text.textContent="Ready to save"; btn.disabled = state.rows.length===0;
   }
   checkDownloads();
 
