@@ -333,10 +333,10 @@
       </div>
       <div class="zone" id="zone-garagesale">
         <div class="kicker">GarageSale export <span class="chip">CSV</span> <span class="chip" style="opacity:.7">optional</span></div>
-        <p>Reads each item's client/consignor code from the hidden marker GarageSale embeds in the listing description, and prints it on that item's row of the packing slip.</p>
+        <p>Reads each item's client/consignor code from the hidden marker GarageSale embeds in the listing description, and prints it on that item's row of the packing slip. You can select multiple files if items span more than one export.</p>
         <div class="btn-line">
-          <button class="btn" onclick="document.getElementById('file-garagesale').click()">Choose file</button>
-          <input type="file" id="file-garagesale" accept=".csv,text/csv">
+          <button class="btn" onclick="document.getElementById('file-garagesale').click()">Choose file(s)</button>
+          <input type="file" id="file-garagesale" accept=".csv,text/csv" multiple>
         </div>
         <div class="filelist" id="files-garagesale"></div>
         <div class="zone-status" id="status-garagesale">No file yet</div>
@@ -412,7 +412,7 @@
     rows: [],       // one per slip page: { slipIdx, labelIdx|null, score, smart }
     order: "label-first",
     downloadsApi: null,
-    garagesale: { fileName: null, lookup: null, total: 0, withCode: 0 }  // optional: title -> client code
+    garagesale: { records: [], lookup: new Map(), total: 0, withCode: 0 }  // optional: title -> client code, merged across every uploaded file
   };
 
   // ---------- text utilities ----------
@@ -684,50 +684,92 @@
     return rows;
   }
 
-  async function handleGaragesaleFile(file){
-    setGsStatus("Reading…", false);
-    try {
-      const text = await file.text();
-      const table = parseCSV(text);
-      if (table.length < 2) throw new Error("empty");
-      const header = table[0].map(h => h.trim());
-      const titleCol = header.indexOf("Title"), descCol = header.indexOf("Description");
-      if (titleCol === -1 || descCol === -1) throw new Error("missing columns");
-      const lookup = new Map();
-      let total = 0, withCode = 0;
-      for (let i=1; i<table.length; i++){
-        const r = table[i];
-        if (!r || r.length < 2) continue;
-        const title = (r[titleCol]||"").trim();
-        if (!title) continue;
-        total++;
-        const m = CODE_SPAN_RE.exec(r[descCol]||"");
-        if (m && m[1].trim()){ lookup.set(titleKey(title), m[1].trim()); withCode++; }
-      }
-      state.garagesale = { fileName: file.name, lookup, total, withCode };
-      setGsStatus(withCode+" of "+total+" item(s) have a client code — matched to packing slips by title.", true);
-    } catch(e){
-      state.garagesale = { fileName: null, lookup: null, total: 0, withCode: 0 };
-      setGsStatus("Couldn't read that as a GarageSale export (expects Title + Description columns).", false);
+  async function parseGaragesaleFile(file){
+    // Parses a single GarageSale export into its own title->code lookup + counts.
+    // Throws on anything unreadable so the caller can skip just this one file.
+    const text = await file.text();
+    const table = parseCSV(text);
+    if (table.length < 2) throw new Error("empty");
+    const header = table[0].map(h => h.trim());
+    const titleCol = header.indexOf("Title"), descCol = header.indexOf("Description");
+    if (titleCol === -1 || descCol === -1) throw new Error("missing columns");
+    const lookup = new Map();
+    let total = 0, withCode = 0;
+    for (let i=1; i<table.length; i++){
+      const r = table[i];
+      if (!r || r.length < 2) continue;
+      const title = (r[titleCol]||"").trim();
+      if (!title) continue;
+      total++;
+      const m = CODE_SPAN_RE.exec(r[descCol]||"");
+      if (m && m[1].trim()){ lookup.set(titleKey(title), m[1].trim()); withCode++; }
     }
-    renderGaragesaleFile();
+    return { fileName: file.name, lookup, total, withCode };
   }
 
-  function renderGaragesaleFile(){
+  function rebuildGaragesaleLookup(){
+    // Merges every uploaded file's title->code map into one combined lookup.
+    // On a title that appears in more than one file, the file added last wins
+    // (same convention as the multi-file GarageSale upload in the main ledger tool).
+    const merged = new Map();
+    let total = 0, withCode = 0;
+    state.garagesale.records.forEach(rec => {
+      total += rec.total;
+      withCode += rec.withCode;
+      for (const [k,v] of rec.lookup) merged.set(k, v);
+    });
+    state.garagesale.lookup = merged;
+    state.garagesale.total = total;
+    state.garagesale.withCode = withCode;
+  }
+
+  async function handleGaragesaleFiles(files){
+    if (!files.length) return;
+    setGsStatus("Reading…", false);
+    const failed = [];
+    for (const file of files){
+      try {
+        const rec = await parseGaragesaleFile(file);
+        state.garagesale.records.push(rec);
+      } catch(e){
+        failed.push(file.name);
+      }
+    }
+    rebuildGaragesaleLookup();
+    renderGaragesaleFiles();
+
+    const n = state.garagesale.records.length;
+    if (n === 0){
+      setGsStatus("Couldn't read that as a GarageSale export (expects Title + Description columns).", false);
+      return;
+    }
+    let msg = state.garagesale.withCode+" of "+state.garagesale.total+" item(s) have a client code"
+      + (n>1 ? " across "+n+" files" : "") + " — matched to packing slips by title.";
+    if (failed.length) msg += " (skipped "+failed.length+": "+failed.join(", ")+" — not a valid GarageSale export)";
+    setGsStatus(msg, true);
+  }
+
+  function renderGaragesaleFiles(){
     const el = document.getElementById("files-garagesale");
     el.innerHTML = "";
-    if (!state.garagesale.fileName) return;
-    const row = document.createElement("div");
-    row.className = "filerow";
-    row.innerHTML = "<span class='name' title='"+escapeHtml(state.garagesale.fileName)+"'>"+escapeHtml(state.garagesale.fileName)+"</span>" +
-      "<span class='pages'>"+state.garagesale.withCode+" codes</span>" +
-      "<button title='Remove'>×</button>";
-    row.querySelector("button").onclick = () => {
-      state.garagesale = { fileName: null, lookup: null, total: 0, withCode: 0 };
-      renderGaragesaleFile();
-      setGsStatus("No file yet", false);
-    };
-    el.appendChild(row);
+    state.garagesale.records.forEach((rec, idx) => {
+      const row = document.createElement("div");
+      row.className = "filerow";
+      row.innerHTML = "<span class='name' title='"+escapeHtml(rec.fileName)+"'>"+escapeHtml(rec.fileName)+"</span>" +
+        "<span class='pages'>"+rec.withCode+" codes</span>" +
+        "<button title='Remove'>×</button>";
+      row.querySelector("button").onclick = () => {
+        state.garagesale.records.splice(idx,1);
+        rebuildGaragesaleLookup();
+        renderGaragesaleFiles();
+        setGsStatus(state.garagesale.records.length
+          ? state.garagesale.withCode+" of "+state.garagesale.total+" item(s) have a client code"
+            + (state.garagesale.records.length>1 ? " across "+state.garagesale.records.length+" files" : "")
+            + " — matched to packing slips by title."
+          : "No file yet", state.garagesale.records.length>0);
+      };
+      el.appendChild(row);
+    });
   }
 
   function setGsStatus(text, ready){
@@ -916,14 +958,14 @@
     const input = document.getElementById("file-garagesale");
     const zone = document.getElementById("zone-garagesale");
     input.addEventListener("change", () => {
-      if (input.files[0]) handleGaragesaleFile(input.files[0]);
+      handleGaragesaleFiles(Array.from(input.files));
       input.value = "";
     });
     ["dragenter","dragover"].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add("drag"); }));
     ["dragleave","drop"].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove("drag"); }));
     zone.addEventListener("drop", e => {
-      const f = (e.dataTransfer.files || [])[0];
-      if (f) handleGaragesaleFile(f);
+      const files = Array.from(e.dataTransfer.files || []);
+      if (files.length) handleGaragesaleFiles(files);
     });
   })();
 
@@ -932,8 +974,10 @@
     state.labels = { files: [], pages: [] };
     state.slips = { files: [], pages: [] };
     state.rows = [];
-    renderFileList("labels"); renderFileList("slips");
+    state.garagesale = { records: [], lookup: new Map(), total: 0, withCode: 0 };
+    renderFileList("labels"); renderFileList("slips"); renderGaragesaleFiles();
     setStatus("labels","No file yet", false); setStatus("slips","No file yet", false);
+    setGsStatus("No file yet", false);
     updateBuildButton();
     document.getElementById("section-results").classList.add("hide");
     document.getElementById("dock").classList.remove("show");
