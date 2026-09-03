@@ -853,8 +853,12 @@
         // This label shared its source sheet with a sibling label (or was the lone one on a
         // page that fits eBay's 2-up template). Build it a full 11"x8.5" landscape sheet
         // (792x612pt) of its own: rotate the source page 90° and slide it so just this
-        // label's band lands upright in the left half, then mask the right half blank white
+        // label's band lands upright in the RIGHT half, then mask the left half blank white
         // so the sibling's content (or anything the rotation swept into view) never shows.
+        // The label sits in the right half (not the left) because the user's printer/print
+        // pipeline mirrors the page on the way to paper — the on-screen PDF was already
+        // confirmed correct in the left half, so this shifts the content 396pt right to
+        // compensate and land on the correct physical side once printed.
         // Doing this as a raw content-stream transform (embed the untouched source page,
         // concat our own matrix, draw at natural size) — rather than pdf-lib's drawPage
         // width/height/rotate options — avoids the silent re-scaling that broke an earlier
@@ -867,11 +871,11 @@
         const top = rec.crop.top; // this label's band, measured from the bottom of the original source page
         newPage.pushOperators(
           PDFLib.pushGraphicsState(),
-          PDFLib.concatTransformationMatrix(0, 1, -1, 0, top, 0)
+          PDFLib.concatTransformationMatrix(0, 1, -1, 0, top + sheetW/2, 0)
         );
         newPage.drawPage(embedded, { x: 0, y: 0 });
         newPage.pushOperators(PDFLib.popGraphicsState());
-        newPage.drawRectangle({ x: sheetW/2, y: 0, width: sheetW/2, height: sheetH, color: PDFLib.rgb(1,1,1) });
+        newPage.drawRectangle({ x: 0, y: 0, width: sheetW/2, height: sheetH, color: PDFLib.rgb(1,1,1) });
         return;
       }
       // Packing slips, and any label that was already alone on its own full page (no 2-up
