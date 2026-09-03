@@ -354,8 +354,8 @@
 
     <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
       <div class="order-toggle" id="order-toggle">
-        <button data-order="slip-first" class="active">Slip → Label</button>
-        <button data-order="label-first">Label → Slip</button>
+        <button data-order="slip-first">Slip → Label</button>
+        <button data-order="label-first" class="active">Label → Slip</button>
       </div>
       <a class="reset-link" onclick="resetAll()">start over</a>
     </div>
@@ -408,7 +408,7 @@
     labels: { files: [], pages: [] },   // pages: {fileIdx, pageIdxInFile, text}
     slips:  { files: [], pages: [] },
     rows: [],       // one per slip page: { slipIdx, labelIdx|null, score, smart }
-    order: "slip-first",
+    order: "label-first",
     downloadsApi: null,
     garagesale: { fileName: null, lookup: null, total: 0, withCode: 0 }  // optional: title -> client code
   };
