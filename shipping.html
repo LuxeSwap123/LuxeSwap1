@@ -357,9 +357,15 @@
     <div class="summary" id="summary"></div>
 
     <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
-      <div class="order-toggle" id="order-toggle">
-        <button data-order="slip-first">Slip → Label</button>
-        <button data-order="label-first" class="active">Label → Slip</button>
+      <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+        <div class="order-toggle" id="order-toggle">
+          <button data-order="slip-first">Slip → Label</button>
+          <button data-order="label-first" class="active">Label → Slip</button>
+        </div>
+        <div class="order-toggle" id="side-toggle" title="Which half of the landscape sheet a split UPS-style label sits in. Some printers mirror the page on the way to paper — if labels keep coming out on the wrong side, flip this instead of asking for another fix.">
+          <button data-side="left">Label: left side</button>
+          <button data-side="right" class="active">Label: right side</button>
+        </div>
       </div>
       <a class="reset-link" onclick="resetAll()">start over</a>
     </div>
@@ -413,6 +419,11 @@
     slips:  { files: [], pages: [] },
     rows: [],       // one per slip page: { slipIdx, labelIdx|null, score, smart }
     order: "label-first",
+    // Which half of the landscape sheet a split domestic label lands in. This has flipped
+    // back and forth by real-world print test more than once (some printer/driver setups
+    // mirror the page on the way to paper) -- it's a toggle now instead of a hardcoded
+    // direction so that keeps being sorted out in the UI, not by waiting on a code change.
+    labelSide: "right",
     downloadsApi: null,
     garagesale: { records: [], lookup: new Map(), total: 0, withCode: 0 }  // optional: title -> client code, merged across every uploaded file
   };
@@ -1049,6 +1060,12 @@
     state.order = btn.dataset.order;
     document.querySelectorAll("#order-toggle button").forEach(b => b.classList.toggle("active", b===btn));
   });
+  document.getElementById("side-toggle").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-side]");
+    if (!btn) return;
+    state.labelSide = btn.dataset.side;
+    document.querySelectorAll("#side-toggle button").forEach(b => b.classList.toggle("active", b===btn));
+  });
 
   // ---------- drag & drop / input wiring ----------
   function wireZone(side, inputId, zoneId){
@@ -1182,12 +1199,14 @@
         // This label shared its source sheet with a sibling label (or was the lone one on a
         // page that fits eBay's 2-up template). Build it a full 11"x8.5" landscape sheet
         // (792x612pt) of its own: rotate the source page 90° and slide it so just this
-        // label's band lands upright in the LEFT half, then mask the right half blank white
-        // so the sibling's content (or anything the rotation swept into view) never shows.
-        // The label sits in the left half — this was flipped back from the right half after
-        // a real print test confirmed left is correct on the user's printer/pipeline (it had
-        // been shifted right once before for the opposite reason; if a future print test
-        // says otherwise, this is the one place to flip again).
+        // label's band lands upright in state.labelSide's half, then mask the OTHER half
+        // blank white so the sibling's content (or anything the rotation swept into view)
+        // never shows.
+        // Which side is correct has flipped back and forth by real print test more than
+        // once (some printer/driver setups mirror the page on the way to paper) -- rather
+        // than keep hardcoding a direction and waiting on a fix each time it flips again,
+        // this reads state.labelSide (the "Label: left/right side" toggle above the table)
+        // so it can be corrected right in the UI.
         // Doing this as a raw content-stream transform (embed the untouched source page,
         // concat our own matrix, draw at natural size) — rather than pdf-lib's drawPage
         // width/height/rotate options — avoids the silent re-scaling that broke an earlier
@@ -1198,13 +1217,14 @@
         const sheetW = 792, sheetH = 612;
         const newPage = out.addPage([sheetW, sheetH]);
         const top = rec.crop.top; // this label's band, measured from the bottom of the original source page
+        const shiftRight = state.labelSide === "right";
         newPage.pushOperators(
           PDFLib.pushGraphicsState(),
-          PDFLib.concatTransformationMatrix(0, 1, -1, 0, top, 0)
+          PDFLib.concatTransformationMatrix(0, 1, -1, 0, top + (shiftRight ? sheetW/2 : 0), 0)
         );
         newPage.drawPage(embedded, { x: 0, y: 0 });
         newPage.pushOperators(PDFLib.popGraphicsState());
-        newPage.drawRectangle({ x: sheetW/2, y: 0, width: sheetW/2, height: sheetH, color: PDFLib.rgb(1,1,1) });
+        newPage.drawRectangle({ x: shiftRight ? 0 : sheetW/2, y: 0, width: sheetW/2, height: sheetH, color: PDFLib.rgb(1,1,1) });
         return;
       }
       if (side === "labels" && !rec.crop && rec.fullPageAmidTemplate){
