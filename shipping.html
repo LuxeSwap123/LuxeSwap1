@@ -1,9 +1,11 @@
 
 
+
 <title>eBay Shipping Manager · LuxeSwap</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,450;9..144,560;9..144,650&family=Source+Sans+3:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
 <style>
   :root{
@@ -381,7 +383,7 @@
 
     <div class="unmatched-card hide" id="unmatched-card"></div>
 
-    <p class="footnote">Matching is done by reading the text on each page (recipient name, address, order or tracking number) and, where a batch was printed in a different order than it was selected, by cross-checking that shared text. Rows marked <b>Unverified</b> are paired purely by page order — double-check those, and any label built from a scanned/image-only thermal PDF, before printing. Use the dropdown on any row to fix a pairing by hand.</p>
+    <p class="footnote">Matching is done by reading the text on each page (recipient name, address, order or tracking number) and, where a batch was printed in a different order than it was selected, by cross-checking that shared text. Image-only thermal labels (no text layer of their own) are OCR'd first so the same matching applies to them too — this can take a little while on a large batch. Rows marked <b>Unverified</b> are paired purely by page order — double-check those before printing. Use the dropdown on any row to fix a pairing by hand.</p>
   </section>
 
 </div>
@@ -518,8 +520,97 @@
     return merged;
   }
 
+  // ---------- OCR fallback for image-only labels (no embedded text layer) ----------
+  // Every UPS-style thermal label seen so far is a raster image with zero extractable
+  // text, so pairScore() always returned 0 for it and matching fell back to pure page
+  // order -- with no way to recover if a label was ever missing, relocated, or a
+  // different format (see the USPS mismatch this project hit in a real batch). OCR'ing
+  // each such label's own region gives it a real ship-to name/zip/tracking string just
+  // like a text-based label or packing slip already has, so the SAME content-based
+  // pairScore() matching applies uniformly to every label regardless of source format --
+  // one method, real content, instead of a special case for image-only labels.
+  //
+  // The crop+rotate used to prepare each region for OCR was validated against this
+  // project's real sample batch before being ported here: rendering a real label band,
+  // applying this exact transform, and running OCR on the result recovered the correct
+  // ship-to name and zip, matching the same recovery done earlier by hand for that batch.
+  async function renderPageToCanvas(page, scale){
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(vp.width);
+    canvas.height = Math.ceil(vp.height);
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+    return { canvas, vp };
+  }
+  function cropAndUprightForOcr(pageCanvas, vp, cropRect, rotate){
+    // cropRect is in the same page-space (scale=1) coordinates extractPages() already
+    // computes rec.crop in; convertToViewportPoint maps it into this render's pixel
+    // space, accounting for scale and any inherent page rotation automatically.
+    const p1 = vp.convertToViewportPoint(cropRect.left, cropRect.top);
+    const p2 = vp.convertToViewportPoint(cropRect.right, cropRect.bottom);
+    const x0 = Math.max(0, Math.min(p1[0], p2[0])), x1 = Math.min(pageCanvas.width, Math.max(p1[0], p2[0]));
+    const y0 = Math.max(0, Math.min(p1[1], p2[1])), y1 = Math.min(pageCanvas.height, Math.max(p1[1], p2[1]));
+    const cw = Math.max(1, Math.round(x1 - x0)), ch = Math.max(1, Math.round(y1 - y0));
+    const cropCanvas = document.createElement("canvas");
+    cropCanvas.width = cw; cropCanvas.height = ch;
+    cropCanvas.getContext("2d").drawImage(pageCanvas, x0, y0, cw, ch, 0, 0, cw, ch);
+    if (!rotate) return cropCanvas;
+    // Rotate 90° so the (sideways, within its band) label content reads upright for OCR --
+    // this specific translate+rotate sequence was checked pixel-for-pixel against a known
+    // correct rotation of real label content before shipping.
+    const rotated = document.createElement("canvas");
+    rotated.width = ch; rotated.height = cw;
+    const rctx = rotated.getContext("2d");
+    rctx.translate(0, cw);
+    rctx.rotate(-Math.PI/2);
+    rctx.drawImage(cropCanvas, 0, 0);
+    return rotated;
+  }
+  async function ocrFillLabelText(pdf, items, onProgress){
+    // If the OCR library didn't load (offline, blocked, or unavailable in this hosting
+    // context) or fails to start, skip silently -- image-only labels just keep falling
+    // back to page-order pairing as they always have. This feature must never be able to
+    // break the tool itself.
+    if (typeof Tesseract === "undefined") return;
+    const toDo = items.filter(it => it.needsOcr);
+    if (!toDo.length) return;
+    let worker;
+    try {
+      worker = await Tesseract.createWorker("eng");
+      try { await worker.setParameters({ tessedit_pageseg_mode: "6" }); } catch(e){ /* keep default PSM */ }
+    } catch(e){ return; }
+    const byPage = new Map();
+    toDo.forEach(it => {
+      if (!byPage.has(it.pageIdxInFile)) byPage.set(it.pageIdxInFile, []);
+      byPage.get(it.pageIdxInFile).push(it);
+    });
+    let done = 0;
+    try {
+      for (const [pageIdx, pageItems] of byPage){
+        let rendered;
+        try {
+          const page = await pdf.getPage(pageIdx + 1);
+          rendered = await renderPageToCanvas(page, 3); // ~216 effective dpi -- enough for label-sized text
+        } catch(e){ done += pageItems.length; if (onProgress) onProgress(done, toDo.length); continue; }
+        for (const it of pageItems){
+          try {
+            const region = it.crop
+              ? cropAndUprightForOcr(rendered.canvas, rendered.vp, it.crop, true)
+              : rendered.canvas; // a full-page insert (e.g. USPS) with no crop -- already upright, no rotation
+            const { data } = await worker.recognize(region);
+            if (data && data.text && data.text.trim()) it.text = data.text;
+          } catch(e){ /* leave this one item's text empty, same as before this feature existed */ }
+          done++;
+          if (onProgress) onProgress(done, toDo.length);
+        }
+      }
+    } finally {
+      try { await worker.terminate(); } catch(e){}
+    }
+  }
+
   // ---------- file handling ----------
-  async function extractPages(file){
+  async function extractPages(file, side, onProgress){
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
 
@@ -543,7 +634,16 @@
     for (const pd of pageData){
       if (nTemplate < 2 || pd.regions.length === 0){
         const text = pd.content.items.map(i => i.str).join(" ");
-        out.push({ pageIdxInFile: pd.pageIdxInFile, text, crop: null });
+        // A page that doesn't fit this file's own 2-up template (no image large enough to
+        // register as a label) while OTHER pages in the same file DO fit it is very likely a
+        // differently-formatted label mixed into the batch -- e.g. a USPS Click-N-Ship label
+        // (an upright full page combining the label, a CN22 customs form, and a receipt),
+        // which eBay generates separately and drops in among rotated UPS 2-up thermal sheets
+        // whenever one order ships by a different carrier. Flagged here so copyPage() can give
+        // it the same full landscape sheet shape as every other label instead of leaving it as
+        // the one structurally different (portrait) page in the deck -- confirmed to make some
+        // print pipelines reorder pages and place labels on the wrong side.
+        out.push({ pageIdxInFile: pd.pageIdxInFile, text, crop: null, fullPageAmidTemplate: nTemplate >= 2 });
         continue;
       }
       const bandH = pd.vpH / nTemplate;
@@ -557,6 +657,15 @@
         }).map(it => it.str).join(" ");
         out.push({ pageIdxInFile: pd.pageIdxInFile, text, crop: { left:0, bottom, right: pd.vpW, top } });
       }
+    }
+
+    // Give every image-only label (no usable text yet) a shot at OCR before returning, so
+    // it can be matched by content just like everything else. Packing slips never need
+    // this (they always carry a real text layer), so it's scoped to the labels side only.
+    if (side === "labels"){
+      out.forEach(it => { it.needsOcr = tokenSet(it.text).size === 0 && extractIdentifiers(it.text).size === 0; });
+      await ocrFillLabelText(pdf, out, onProgress);
+      out.forEach(it => { delete it.needsOcr; });
     }
     return out;
   }
@@ -598,7 +707,9 @@
     bucket.pages = [];
     for (let fi=0; fi<bucket.files.length; fi++){
       try {
-        const regions = await extractPages(bucket.files[fi]);
+        const regions = await extractPages(bucket.files[fi], side, (done, total) => {
+          setStatus(side, "OCR’ing image-only labels to recover ship-to info… "+done+"/"+total, false);
+        });
         regions.forEach(r => bucket.pages.push({ fileIdx: fi, ...r }));
       } catch(e){
         toast("Couldn't read \""+bucket.files[fi].name+"\" — is it a valid PDF?", true);
@@ -1071,12 +1182,12 @@
         // This label shared its source sheet with a sibling label (or was the lone one on a
         // page that fits eBay's 2-up template). Build it a full 11"x8.5" landscape sheet
         // (792x612pt) of its own: rotate the source page 90° and slide it so just this
-        // label's band lands upright in the RIGHT half, then mask the left half blank white
+        // label's band lands upright in the LEFT half, then mask the right half blank white
         // so the sibling's content (or anything the rotation swept into view) never shows.
-        // The label sits in the right half (not the left) because the user's printer/print
-        // pipeline mirrors the page on the way to paper — the on-screen PDF was already
-        // confirmed correct in the left half, so this shifts the content 396pt right to
-        // compensate and land on the correct physical side once printed.
+        // The label sits in the left half — this was flipped back from the right half after
+        // a real print test confirmed left is correct on the user's printer/pipeline (it had
+        // been shifted right once before for the opposite reason; if a future print test
+        // says otherwise, this is the one place to flip again).
         // Doing this as a raw content-stream transform (embed the untouched source page,
         // concat our own matrix, draw at natural size) — rather than pdf-lib's drawPage
         // width/height/rotate options — avoids the silent re-scaling that broke an earlier
@@ -1089,17 +1200,40 @@
         const top = rec.crop.top; // this label's band, measured from the bottom of the original source page
         newPage.pushOperators(
           PDFLib.pushGraphicsState(),
-          PDFLib.concatTransformationMatrix(0, 1, -1, 0, top + sheetW/2, 0)
+          PDFLib.concatTransformationMatrix(0, 1, -1, 0, top, 0)
         );
         newPage.drawPage(embedded, { x: 0, y: 0 });
         newPage.pushOperators(PDFLib.popGraphicsState());
-        newPage.drawRectangle({ x: 0, y: 0, width: sheetW/2, height: sheetH, color: PDFLib.rgb(1,1,1) });
+        newPage.drawRectangle({ x: sheetW/2, y: 0, width: sheetW/2, height: sheetH, color: PDFLib.rgb(1,1,1) });
+        return;
+      }
+      if (side === "labels" && !rec.crop && rec.fullPageAmidTemplate){
+        // A full-page label (e.g. USPS Click-N-Ship) mixed into an otherwise 2-up UPS batch.
+        // Give it the same full 792x612 landscape sheet shape as every split domestic label —
+        // rotate it 90° and fill the WHOLE sheet (no left/right split or white mask needed,
+        // since it isn't sharing a page with a sibling label) — so every label page in the
+        // merged file is structurally identical. A mismatched lone portrait page amid
+        // otherwise-uniform landscape pages was confirmed to make some print pipelines
+        // reorder pages and place labels on the wrong side; this keeps that from happening
+        // whenever a USPS-style label shows up in a batch.
+        const srcPage = doc.getPage(rec.pageIdxInFile);
+        const embedded = await out.embedPage(srcPage);
+        const { height: srcH } = srcPage.getSize();
+        const sheetW = 792, sheetH = 612;
+        const newPage = out.addPage([sheetW, sheetH]);
+        newPage.pushOperators(
+          PDFLib.pushGraphicsState(),
+          PDFLib.concatTransformationMatrix(0, 1, -1, 0, srcH, 0)
+        );
+        newPage.drawPage(embedded, { x: 0, y: 0 });
+        newPage.pushOperators(PDFLib.popGraphicsState());
         return;
       }
       // Packing slips, and any label that was already alone on its own full page (no 2-up
-      // template detected for that file) — copy the whole page as-is. Copying this way
-      // (rather than re-stamping the content onto a fresh page) preserves the content stream,
-      // including any orientation baked into the artwork, exactly.
+      // template detected for that file at all — a genuinely single-label-per-file export,
+      // not a mismatched insert) — copy the whole page as-is. Copying this way (rather than
+      // re-stamping the content onto a fresh page) preserves the content stream, including
+      // any orientation baked into the artwork, exactly.
       const [pg] = await out.copyPages(doc, [rec.pageIdxInFile]);
       if (rec.crop){
         const { left, bottom, right, top } = rec.crop;
