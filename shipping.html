@@ -1,6 +1,7 @@
 
 
 
+
 <title>eBay Shipping Manager · LuxeSwap</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,450;9..144,560;9..144,650&family=Source+Sans+3:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -301,7 +302,7 @@
 
   <div class="eyebrow"><span class="mark">LuxeSwap</span> · shipping tools</div>
   <h1>eBay Shipping Manager</h1>
-  <p class="sub">Upload the bulk shipping-label PDF and the bulk packing-slip PDF from eBay Seller Hub. This builds <b>one print-ready file</b> with each label immediately followed by its matching packing slip, so the printer hands you a collated stack instead of two piles to sort by hand.</p>
+  <p class="sub">Upload the bulk shipping-label PDF and the bulk packing-slip PDF from eBay Seller Hub. This builds <b>one print-ready file</b> with each label immediately followed by its matching packing slip, so the printer hands you a collated stack instead of two piles to sort by hand. Client codes are printed on each packing-slip row — from the GarageSale export for regular items, and from the SKU column of a sold-items report for ties.</p>
   <div style="margin:14px 0 6px;display:flex;gap:12px;flex-wrap:wrap;">
     <a href="index.html" style="display:inline-block;color:#d7bd8c;font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.05em;border:1px solid #b08d57;padding:8px 16px;border-radius:2px;text-decoration:none;">→ eBay Invoice Processing</a>
     <a href="unpaid.html" style="display:inline-block;color:#d7bd8c;font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.05em;border:1px solid #b08d57;padding:8px 16px;border-radius:2px;text-decoration:none;">→ eBay Unpaid Item Checker</a>
@@ -342,6 +343,16 @@
         </div>
         <div class="filelist" id="files-garagesale"></div>
         <div class="zone-status" id="status-garagesale">No file yet</div>
+      </div>
+      <div class="zone" id="zone-skureport">
+        <div class="kicker">Sold items report <span class="chip">CSV</span> <span class="chip" style="opacity:.7">optional</span></div>
+        <p>Ties carry the client code directly in the SKU / Custom Label column, not in a GarageSale entry — same as the tie-processing tool. Upload the eBay Transaction Report or Orders Report (must include a SKU / Custom Label column) and tie codes will print on the packing slip the same way regular items' codes do.</p>
+        <div class="btn-line">
+          <button class="btn" onclick="document.getElementById('file-skureport').click()">Choose file(s)</button>
+          <input type="file" id="file-skureport" accept=".csv,text/csv" multiple>
+        </div>
+        <div class="filelist" id="files-skureport"></div>
+        <div class="zone-status" id="status-skureport">No file yet</div>
       </div>
     </div>
 
@@ -425,7 +436,8 @@
     // direction so that keeps being sorted out in the UI, not by waiting on a code change.
     labelSide: "right",
     downloadsApi: null,
-    garagesale: { records: [], lookup: new Map(), total: 0, withCode: 0 }  // optional: title -> client code, merged across every uploaded file
+    garagesale: { records: [], lookup: new Map(), total: 0, withCode: 0 },  // optional: title -> client code, merged across every uploaded file
+    skuReport: { records: [], lookup: new Map(), total: 0, withCode: 0 }    // optional: title -> client code (from SKU col), for ties
   };
 
   // ---------- text utilities ----------
@@ -900,6 +912,136 @@
     el.className = "zone-status" + (ready ? " ready" : "");
   }
 
+  // ---------- SKU-report client codes (optional 4th upload, for ties) ----------
+  // Regular items get their code from the GarageSale hidden-span lookup above. Ties are
+  // catalogued differently -- there's no GarageSale entry with a hidden code span for them,
+  // but the SKU / Custom Label column on eBay's own sold-items report IS the client code
+  // directly (the same mechanism the separate tie-processing tool uses: the whole SKU value
+  // is the code, no title-matching needed to derive it). This builds the same shape of
+  // title -> code lookup as the GarageSale one, just sourced from that report's Item
+  // title + SKU columns instead, so stampClientCodes() can use either interchangeably.
+  function rowsToObjects(rows){
+    const header = rows[0].map(h => h.trim());
+    return rows.slice(1).filter(r => r.length>1).map(r => {
+      const o = {};
+      header.forEach((h,i) => { o[h] = (r[i]!==undefined ? r[i] : ""); });
+      return o;
+    });
+  }
+  function findKeyIgnoreCase(row, candidates){
+    const keys = Object.keys(row);
+    for (const cand of candidates){
+      const hit = keys.find(k => k.trim().toLowerCase() === cand.toLowerCase());
+      if (hit) return hit;
+    }
+    const hit2 = keys.find(k => /sku|custom label/i.test(k));
+    return hit2 || null;
+  }
+  function parseSkuReportText(text){
+    const lines = text.split(/\r?\n/);
+    let headerIdx = -1;
+    for (let i=0; i<lines.length; i++){
+      if (lines[i].replace(/^"/,"").startsWith("Transaction creation date")){ headerIdx = i; break; }
+    }
+    let objs, titleKeyName, skuKeyName;
+    if (headerIdx !== -1){
+      // eBay Transaction Report format.
+      const body = lines.slice(headerIdx).join("\n");
+      const rows = parseCSV(body);
+      objs = rowsToObjects(rows).filter(r => r["Type"] === "Order" && r["Item title"] && r["Item title"] !== "--");
+      if (!objs.length) throw new Error("no Order rows with an item title found");
+      titleKeyName = "Item title";
+      skuKeyName = findKeyIgnoreCase(objs[0], ["Custom label (SKU)","Custom label","SKU","eBay SKU"]);
+    } else {
+      // Fallback: a generic Orders-Report-style CSV.
+      const rows = parseCSV(text);
+      objs = rowsToObjects(rows).filter(r => Object.values(r).some(v => v && String(v).trim()!==""));
+      if (!objs.length) throw new Error("no rows found");
+      titleKeyName = findKeyIgnoreCase(objs[0], ["Item title","Item Title","Item name","Title"]) || "Item title";
+      skuKeyName = findKeyIgnoreCase(objs[0], ["Custom label (SKU)","Custom label","SKU","eBay SKU"]);
+    }
+    if (!skuKeyName) throw new Error("no SKU / Custom Label column found");
+    const lookup = new Map();
+    let total = 0, withCode = 0;
+    objs.forEach(r => {
+      const title = (r[titleKeyName]||"").trim();
+      if (!title) return;
+      total++;
+      const code = (r[skuKeyName]||"").trim();
+      if (code){ lookup.set(titleKey(title), code); withCode++; }
+    });
+    return { lookup, total, withCode };
+  }
+  async function parseSkuReportFile(file){
+    const text = await file.text();
+    const { lookup, total, withCode } = parseSkuReportText(text);
+    return { fileName: file.name, lookup, total, withCode };
+  }
+  function rebuildSkuReportLookup(){
+    const merged = new Map();
+    let total = 0, withCode = 0;
+    state.skuReport.records.forEach(rec => {
+      total += rec.total;
+      withCode += rec.withCode;
+      for (const [k,v] of rec.lookup) merged.set(k, v);
+    });
+    state.skuReport.lookup = merged;
+    state.skuReport.total = total;
+    state.skuReport.withCode = withCode;
+  }
+  async function handleSkuReportFiles(files){
+    if (!files.length) return;
+    setSkuStatus("Reading…", false);
+    const failed = [];
+    for (const file of files){
+      try {
+        const rec = await parseSkuReportFile(file);
+        state.skuReport.records.push(rec);
+      } catch(e){
+        failed.push(file.name);
+      }
+    }
+    rebuildSkuReportLookup();
+    renderSkuReportFiles();
+
+    const n = state.skuReport.records.length;
+    if (n === 0){
+      setSkuStatus("Couldn't read that as a sold-items report (expects an item-title column and a SKU / Custom Label column).", false);
+      return;
+    }
+    let msg = state.skuReport.withCode+" of "+state.skuReport.total+" item(s) have a SKU code"
+      + (n>1 ? " across "+n+" files" : "") + " — matched to packing slips by title.";
+    if (failed.length) msg += " (skipped "+failed.length+": "+failed.join(", ")+" — not a readable sold-items report)";
+    setSkuStatus(msg, true);
+  }
+  function renderSkuReportFiles(){
+    const el = document.getElementById("files-skureport");
+    el.innerHTML = "";
+    state.skuReport.records.forEach((rec, idx) => {
+      const row = document.createElement("div");
+      row.className = "filerow";
+      row.innerHTML = "<span class='name' title='"+escapeHtml(rec.fileName)+"'>"+escapeHtml(rec.fileName)+"</span>" +
+        "<span class='pages'>"+rec.withCode+" codes</span>" +
+        "<button title='Remove'>×</button>";
+      row.querySelector("button").onclick = () => {
+        state.skuReport.records.splice(idx,1);
+        rebuildSkuReportLookup();
+        renderSkuReportFiles();
+        setSkuStatus(state.skuReport.records.length
+          ? state.skuReport.withCode+" of "+state.skuReport.total+" item(s) have a SKU code"
+            + (state.skuReport.records.length>1 ? " across "+state.skuReport.records.length+" files" : "")
+            + " — matched to packing slips by title."
+          : "No file yet", state.skuReport.records.length>0);
+      };
+      el.appendChild(row);
+    });
+  }
+  function setSkuStatus(text, ready){
+    const el = document.getElementById("status-skureport");
+    el.textContent = text;
+    el.className = "zone-status" + (ready ? " ready" : "");
+  }
+
   // ---------- matching ----------
   function buildTable(){
     const L = state.labels.pages, S = state.slips.pages;
@@ -1097,15 +1239,32 @@
     });
   })();
 
+  (function wireSkuReportZone(){
+    const input = document.getElementById("file-skureport");
+    const zone = document.getElementById("zone-skureport");
+    input.addEventListener("change", () => {
+      handleSkuReportFiles(Array.from(input.files));
+      input.value = "";
+    });
+    ["dragenter","dragover"].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.add("drag"); }));
+    ["dragleave","drop"].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.classList.remove("drag"); }));
+    zone.addEventListener("drop", e => {
+      const files = Array.from(e.dataTransfer.files || []);
+      if (files.length) handleSkuReportFiles(files);
+    });
+  })();
+
   window.buildTable = buildTable;
   window.resetAll = function(){
     state.labels = { files: [], pages: [] };
     state.slips = { files: [], pages: [] };
     state.rows = [];
     state.garagesale = { records: [], lookup: new Map(), total: 0, withCode: 0 };
-    renderFileList("labels"); renderFileList("slips"); renderGaragesaleFiles();
+    state.skuReport = { records: [], lookup: new Map(), total: 0, withCode: 0 };
+    renderFileList("labels"); renderFileList("slips"); renderGaragesaleFiles(); renderSkuReportFiles();
     setStatus("labels","No file yet", false); setStatus("slips","No file yet", false);
     setGsStatus("No file yet", false);
+    setSkuStatus("No file yet", false);
     updateBuildButton();
     document.getElementById("section-results").classList.add("hide");
     document.getElementById("dock").classList.remove("show");
@@ -1180,7 +1339,11 @@
         const rowWords = titleWords.filter(w => w.y <= hi && w.y >= lo)
           .sort((a,b) => (b.y - a.y) || (a.x0 - b.x0));
         const title = rowWords.map(w => w.str).join(" ").replace(/\s+/g," ").trim();
-        const code = state.garagesale.lookup.get(titleKey(title));
+        // Regular items: code comes from the GarageSale hidden-span lookup. Ties don't have
+        // a GarageSale entry with a code span, so fall back to the SKU-report lookup (the
+        // SKU/Custom Label column itself IS the code for ties) whenever the title isn't
+        // found in the GarageSale lookup.
+        const code = state.garagesale.lookup.get(titleKey(title)) || state.skuReport.lookup.get(titleKey(title));
         if (!code) continue;
         const w = stampFont.widthOfTextAtSize(code, size);
         pg.drawText(code, { x: colX - 10 - w, y: ay, size, font: stampFont, color: PDFLib.rgb(0,0,0) });
@@ -1260,7 +1423,7 @@
         setBox(pg, "MediaBox", left, bottom, right, top);
         setBox(pg, "CropBox", left, bottom, right, top);
       }
-      if (side === "slips" && state.garagesale.lookup && state.garagesale.lookup.size){
+      if (side === "slips" && ((state.garagesale.lookup && state.garagesale.lookup.size) || (state.skuReport.lookup && state.skuReport.lookup.size))){
         await stampClientCodes(pg, rec);
       }
       out.addPage(pg);
