@@ -399,6 +399,7 @@
     </div>
 
     <div class="unmatched-card hide" id="unmatched-card"></div>
+    <div class="unmatched-card hide" id="usps-warning-card"></div>
 
     <p class="footnote">Matching is done by reading the text on each page (recipient name, address, order or tracking number) and, where a batch was printed in a different order than it was selected, by cross-checking that shared text. Image-only thermal labels (no text layer of their own) are OCR'd first so the same matching applies to them too — this can take a little while on a large batch. Rows marked <b>Unverified</b> are paired purely by page order — double-check those before printing. Use the dropdown on any row to fix a pairing by hand.</p>
   </section>
@@ -489,6 +490,20 @@
   function excerptOf(t){
     const c = (t||"").replace(/\s+/g," ").trim();
     return c ? (c.length>110 ? c.slice(0,110)+"…" : c) : "";
+  }
+
+  // eBay's packing slip occasionally spills onto a second physical page when the item
+  // table runs long (confirmed against a real 5-item order slip) -- but that second page
+  // carries nothing but boilerplate: the "A message from <seller>" note and the
+  // Subtotal/Shipping/Tax/Order total box, no item rows, no Ship-to block, no order
+  // number. Every REAL slip page always has "Ship to" and an "Order:" line; this
+  // continuation page has neither, so that combination (Subtotal present, both of those
+  // absent) reliably identifies it regardless of how many items pushed it over -- no need
+  // to hardcode an item count that would break the moment a different order spills
+  // differently.
+  function isFooterOnlyContinuation(t){
+    const s = t || "";
+    return /subtotal/i.test(s) && !/ship\s*to/i.test(s) && !/\border\s*:/i.test(s);
   }
 
   // ---------- geometry: find embedded-image regions on a page ----------
@@ -690,6 +705,15 @@
       await ocrFillLabelText(pdf, out, onProgress);
       out.forEach(it => { delete it.needsOcr; });
     }
+    if (side === "slips"){
+      // Drop boilerplate-only continuation pages (see isFooterOnlyContinuation) before they
+      // ever become a row -- they carry no ship-to/order info to match on and nothing worth
+      // printing, so the cleanest fix is to never let them into the deck at all rather than
+      // matching them and then suppressing them later.
+      const kept = out.filter(it => !isFooterOnlyContinuation(it.text));
+      kept.droppedFooterPages = out.length - kept.length;
+      return kept;
+    }
     return out;
   }
 
@@ -728,11 +752,13 @@
     setStatus(side, "Reading pages…", false);
     // (re)extract everything from scratch to keep global indices simple & correct
     bucket.pages = [];
+    let droppedFooterPages = 0;
     for (let fi=0; fi<bucket.files.length; fi++){
       try {
         const regions = await extractPages(bucket.files[fi], side, (done, total) => {
           setStatus(side, "OCR’ing image-only labels to recover ship-to info… "+done+"/"+total, false);
         });
+        droppedFooterPages += regions.droppedFooterPages || 0;
         regions.forEach(r => bucket.pages.push({ fileIdx: fi, ...r }));
       } catch(e){
         toast("Couldn't read \""+bucket.files[fi].name+"\" — is it a valid PDF?", true);
@@ -746,7 +772,8 @@
     setStatus(side,
       bucket.pages.length + (bucket.pages.length===1?" item":" items") + " ready"
       + (rawPages !== bucket.pages.length ? " (from "+rawPages+" sheet"+(rawPages===1?"":"s")+")" : "")
-      + (bucket.pages.length && withText===0 ? " · no extractable text (image-based)" : ""),
+      + (bucket.pages.length && withText===0 ? " · no extractable text (image-based)" : "")
+      + (droppedFooterPages ? " · skipped "+droppedFooterPages+" boilerplate overflow page"+(droppedFooterPages===1?"":"s") : ""),
       true);
     updateBuildButton();
   }
@@ -1096,8 +1123,21 @@
     renderSummary();
     renderRows();
     renderUnmatched();
+    renderUspsWarning();
     document.getElementById("dock").classList.add("show");
     document.getElementById("dock-msg").innerHTML = "<b>"+state.rows.length+"</b> pairs queued for the merged PDF.";
+  }
+
+  // A label page flagged fullPageAmidTemplate (see extractPages) is a different-carrier
+  // full-page label -- e.g. USPS Click-N-Ship -- mixed into an otherwise 2-up UPS thermal
+  // batch. It prints fine (copyPage gives it the same full landscape sheet as the others),
+  // but it's worth a heads-up: this is the exact mixed-batch scenario that caused a real
+  // mis-print last time, so it's surfaced both as an on-page note during review and as a
+  // blocking confirm right before the merged PDF is actually built/downloaded.
+  function getUspsLikePages(){
+    const out = [];
+    state.labels.pages.forEach((p, idx) => { if (p.fullPageAmidTemplate) out.push(idx); });
+    return out;
   }
 
   function renderSummary(){
@@ -1193,6 +1233,17 @@
       "didn't get paired with a packing slip (labels PDF has more pages than the packing-slips PDF, or a row was set to “none”). "+
       "They'll be appended at the end of the merged PDF: "+ extra.map(li=>fmtPageLabel("labels", li)).join(", ") + ". " +
       "Assign one to a row above via its dropdown if it belongs there.";
+  }
+
+  function renderUspsWarning(){
+    const card = document.getElementById("usps-warning-card");
+    const pages = getUspsLikePages();
+    if (!pages.length){ card.classList.add("hide"); return; }
+    card.classList.remove("hide");
+    card.innerHTML = "<b>"+pages.length+" label page"+(pages.length===1?"":"s")+"</b> "+
+      "look like a different-carrier full-page label (e.g. USPS Click-N-Ship) mixed into this batch, rather than the usual 2-up thermal sheet: "+
+      pages.map(li=>fmtPageLabel("labels", li)).join(", ") + ". " +
+      "It'll print fine, but double-check your printer/tray for that page before running the batch — you'll get another heads-up when you download.";
   }
 
   // ---------- order toggle ----------
@@ -1457,6 +1508,17 @@
   }
 
   window.downloadMerged = async function(){
+    const uspsPages = getUspsLikePages();
+    if (uspsPages.length){
+      const names = uspsPages.map(li=>fmtPageLabel("labels", li)).join(", ");
+      const proceed = window.confirm(
+        (uspsPages.length===1 ? "1 label page looks" : uspsPages.length+" label pages look")+
+        " like a different-carrier label (e.g. USPS Click-N-Ship) mixed into this batch instead of the usual 2-up thermal sheet: "+names+".\n\n"+
+        "It'll still print as a full sheet like the rest, but this is the same mixed-batch situation that caused a mis-print before — worth a look before you run the whole stack.\n\n"+
+        "OK to continue, Cancel to go back and check."
+      );
+      if (!proceed) return;
+    }
     const btn = document.getElementById("btn-download");
     const original = btn.textContent;
     btn.disabled = true; btn.textContent = "Building PDF…";
