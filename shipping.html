@@ -496,14 +496,20 @@
   // table runs long (confirmed against a real 5-item order slip) -- but that second page
   // carries nothing but boilerplate: the "A message from <seller>" note and the
   // Subtotal/Shipping/Tax/Order total box, no item rows, no Ship-to block, no order
-  // number. Every REAL slip page always has "Ship to" and an "Order:" line; this
-  // continuation page has neither, so that combination (Subtotal present, both of those
-  // absent) reliably identifies it regardless of how many items pushed it over -- no need
-  // to hardcode an item count that would break the moment a different order spills
-  // differently.
+  // number.
+  //
+  // IMPORTANT: an order with MORE than 5 items also spills onto a second page, but that
+  // page carries a real item row (or rows) ABOVE the same footer box -- it has no
+  // "Ship to"/"Order:" line either (those never repeat on a continuation page), so
+  // checking for their absence alone mis-fired on that case too and silently dropped a
+  // page that actually had an item on it. Every real item line on this template always
+  // includes "(Item ID: NNNNNNNN)", so requiring that pattern to be ABSENT as well is what
+  // actually pins this down to "this page has zero items" -- which is what makes it safe
+  // to drop, regardless of whether that happens to occur at exactly 5 items or some other
+  // count.
   function isFooterOnlyContinuation(t){
     const s = t || "";
-    return /subtotal/i.test(s) && !/ship\s*to/i.test(s) && !/\border\s*:/i.test(s);
+    return /subtotal/i.test(s) && !/item\s*id\s*:/i.test(s) && !/ship\s*to/i.test(s) && !/\border\s*:/i.test(s);
   }
 
   // ---------- geometry: find embedded-image regions on a page ----------
@@ -670,30 +676,57 @@
     // to that same slot instead of being left as a full, oversized sheet.
     const out = [];
     for (const pd of pageData){
-      if (nTemplate < 2 || pd.regions.length === 0){
+      if (nTemplate < 2){
         const text = pd.content.items.map(i => i.str).join(" ");
-        // A page that doesn't fit this file's own 2-up template (no image large enough to
-        // register as a label) while OTHER pages in the same file DO fit it is very likely a
-        // differently-formatted label mixed into the batch -- e.g. a USPS Click-N-Ship label
-        // (an upright full page combining the label, a CN22 customs form, and a receipt),
-        // which eBay generates separately and drops in among rotated UPS 2-up thermal sheets
-        // whenever one order ships by a different carrier. Flagged here so copyPage() can give
-        // it the same full landscape sheet shape as every other label instead of leaving it as
-        // the one structurally different (portrait) page in the deck -- confirmed to make some
-        // print pipelines reorder pages and place labels on the wrong side.
-        out.push({ pageIdxInFile: pd.pageIdxInFile, text, crop: null, fullPageAmidTemplate: nTemplate >= 2 });
+        out.push({ pageIdxInFile: pd.pageIdxInFile, text, crop: null, fullPageAmidTemplate: false });
+        continue;
+      }
+      if (pd.regions.length === 0){
+        const text = pd.content.items.map(i => i.str).join(" ");
+        // A page with NO large image anywhere on it, while OTHER pages in the same file DO
+        // fit the 2-up template, is very likely a differently-formatted label mixed into the
+        // batch on its own full sheet -- e.g. a USPS Click-N-Ship label (an upright full page
+        // combining the label, a CN22 customs form, and a receipt), which eBay generates
+        // separately and drops in among rotated UPS 2-up thermal sheets whenever one order
+        // ships by a different carrier. Flagged here so copyPage() can give it the same full
+        // landscape sheet shape as every other label instead of leaving it as the one
+        // structurally different (portrait) page in the deck -- confirmed to make some print
+        // pipelines reorder pages and place labels on the wrong side.
+        out.push({ pageIdxInFile: pd.pageIdxInFile, text, crop: null, fullPageAmidTemplate: true });
         continue;
       }
       const bandH = pd.vpH / nTemplate;
+      const claimedBands = new Set();
       for (const r of pd.regions){
         const cy = (r.y0 + r.y1) / 2;
         const bandIndex = Math.min(nTemplate-1, Math.max(0, Math.floor((pd.vpH - cy) / bandH)));
+        claimedBands.add(bandIndex);
         const top = pd.vpH - bandIndex*bandH, bottom = pd.vpH - (bandIndex+1)*bandH;
         const text = pd.content.items.filter(it => {
           const y = it.transform[5];
           return y >= bottom-2 && y <= top+2;
         }).map(it => it.str).join(" ");
         out.push({ pageIdxInFile: pd.pageIdxInFile, text, crop: { left:0, bottom, right: pd.vpW, top } });
+      }
+      // A band slot on this SAME sheet that no detected image region landed in, but that
+      // still has real text on it, is very likely a differently-formatted label sharing the
+      // page with a normal one -- e.g. a USPS label small/vector enough (logo + barcode +
+      // plain text, no single big raster) that it never crosses the 15%-of-page-area bar
+      // getImageRegions() uses to count as a "region" at all. Confirmed against a real batch:
+      // a USPS label sharing a sheet with one UPS label was never emitted as its own label
+      // unit here before this pass existed, silently vanishing from the merged PDF and
+      // throwing every pairing after it off by one. copyPage()'s crop/rotate handling for a
+      // labels-side entry doesn't care whether the source content was raster or vector, so no
+      // further changes are needed there for this to print correctly.
+      for (let bandIndex=0; bandIndex<nTemplate; bandIndex++){
+        if (claimedBands.has(bandIndex)) continue;
+        const top = pd.vpH - bandIndex*bandH, bottom = pd.vpH - (bandIndex+1)*bandH;
+        const text = pd.content.items.filter(it => {
+          const y = it.transform[5];
+          return y >= bottom-2 && y <= top+2;
+        }).map(it => it.str).join(" ");
+        if (tokenSet(text).size === 0 && extractIdentifiers(text).size === 0) continue; // truly empty band -- nothing to recover
+        out.push({ pageIdxInFile: pd.pageIdxInFile, text, crop: { left:0, bottom, right: pd.vpW, top }, otherFormatSubLabel: true });
       }
     }
 
@@ -1128,15 +1161,16 @@
     document.getElementById("dock-msg").innerHTML = "<b>"+state.rows.length+"</b> pairs queued for the merged PDF.";
   }
 
-  // A label page flagged fullPageAmidTemplate (see extractPages) is a different-carrier
-  // full-page label -- e.g. USPS Click-N-Ship -- mixed into an otherwise 2-up UPS thermal
-  // batch. It prints fine (copyPage gives it the same full landscape sheet as the others),
-  // but it's worth a heads-up: this is the exact mixed-batch scenario that caused a real
-  // mis-print last time, so it's surfaced both as an on-page note during review and as a
-  // blocking confirm right before the merged PDF is actually built/downloaded.
+  // A label page flagged fullPageAmidTemplate (a lone differently-formatted full sheet) or
+  // otherFormatSubLabel (a differently-formatted label sharing a sheet with a normal one --
+  // see extractPages) is a different-carrier label -- e.g. USPS -- mixed into an otherwise
+  // 2-up UPS thermal batch. It prints fine (copyPage gives it the same handling as any other
+  // cropped/full label), but it's worth a heads-up: this is the exact mixed-batch scenario
+  // that caused a real mis-print last time, so it's surfaced both as an on-page note during
+  // review and as a blocking confirm right before the merged PDF is actually built/downloaded.
   function getUspsLikePages(){
     const out = [];
-    state.labels.pages.forEach((p, idx) => { if (p.fullPageAmidTemplate) out.push(idx); });
+    state.labels.pages.forEach((p, idx) => { if (p.fullPageAmidTemplate || p.otherFormatSubLabel) out.push(idx); });
     return out;
   }
 
