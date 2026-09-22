@@ -492,24 +492,26 @@
     return c ? (c.length>110 ? c.slice(0,110)+"…" : c) : "";
   }
 
-  // eBay's packing slip occasionally spills onto a second physical page when the item
-  // table runs long (confirmed against a real 5-item order slip) -- but that second page
-  // carries nothing but boilerplate: the "A message from <seller>" note and the
-  // Subtotal/Shipping/Tax/Order total box, no item rows, no Ship-to block, no order
-  // number.
+  // eBay's packing slip occasionally spills onto a second (or third) physical page when
+  // the item table runs long -- but any spillover page beyond the first carries nothing a
+  // packer needs: at most the "A message from <seller>" note, the
+  // Subtotal/Shipping/Tax/Order total box, and the tax disclaimer sentence -- confirmed
+  // against real orders where this lands as ONE extra page (Subtotal box + disclaimer
+  // together) and, separately, where it splits across TWO extra pages (the Subtotal box on
+  // one, just the trailing disclaimer sentence alone on the next, with no "Subtotal" text
+  // on that last one at all).
   //
-  // IMPORTANT: an order with MORE than 5 items also spills onto a second page, but that
-  // page carries a real item row (or rows) ABOVE the same footer box -- it has no
-  // "Ship to"/"Order:" line either (those never repeat on a continuation page), so
-  // checking for their absence alone mis-fired on that case too and silently dropped a
-  // page that actually had an item on it. Every real item line on this template always
-  // includes "(Item ID: NNNNNNNN)", so requiring that pattern to be ABSENT as well is what
-  // actually pins this down to "this page has zero items" -- which is what makes it safe
-  // to drop, regardless of whether that happens to occur at exactly 5 items or some other
-  // count.
+  // So this can't key off any one boilerplate phrase like "Subtotal" -- that missed the
+  // disclaimer-only page entirely, which let it through as an orphan row that then got
+  // mis-paired into the wrong spot in the output. The reliable signal is the ABSENCE of
+  // everything that only ever appears on a real content page: no item row ("Item ID:"),
+  // no "Ship to" block, no "Order:" line. A genuine page 1 always has "Ship to" + "Order:";
+  // a genuine continuation page with an overflow ITEM (e.g. a 6-item order) always has
+  // "Item ID:" on it. A page with none of the three is never anything a packer needs to
+  // see, whatever boilerplate text it does or doesn't happen to carry.
   function isFooterOnlyContinuation(t){
     const s = t || "";
-    return /subtotal/i.test(s) && !/item\s*id\s*:/i.test(s) && !/ship\s*to/i.test(s) && !/\border\s*:/i.test(s);
+    return !/item\s*id\s*:/i.test(s) && !/ship\s*to/i.test(s) && !/\border\s*:/i.test(s);
   }
 
   // ---------- geometry: find embedded-image regions on a page ----------
