@@ -2,6 +2,7 @@
 
 
 
+
 <title>eBay Shipping Manager · LuxeSwap</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,450;9..144,560;9..144,650&family=Source+Sans+3:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -770,7 +771,31 @@
     return rec.subLabel ? (base+" "+rec.subLabel) : base;
   }
 
-  async function handleFiles(side, fileListArr){
+  // Every mutation of a side's files/pages (adding files, removing one, or a fresh
+  // (re)extraction pass) must run to completion before the next one starts. Extraction can
+  // now take a while (OCR on image-only labels is several seconds per item), which opened a
+  // real window for a second call to overlap a first one still in flight -- e.g. the user
+  // adds a second labels file while the first is still OCR'ing. Two overlapping calls each
+  // reset and rebuild the SAME bucket.pages array and each read bucket.files.length live on
+  // every loop iteration, so one call's results could land after the other's reset, or a
+  // call could pick up a file added (or lose one removed) mid-loop -- producing duplicated
+  // page entries (the stray "(3 of 4)" sub-label groupings reported) and, worse, a fileIdx
+  // tag that no longer matched the file actually at that slot once the merge step tried to
+  // load a specific page from it (the "index … was actually 13" crash). Routing every
+  // mutation for a given side through one promise chain makes them run strictly one at a
+  // time, closing both failure modes at the source instead of papering over the symptom.
+  function chainOp(side, fn){
+    const bucket = state[side];
+    const run = () => Promise.resolve().then(fn).catch(err => { console.error(err); });
+    bucket._queue = bucket._queue ? bucket._queue.then(run, run) : run();
+    return bucket._queue;
+  }
+
+  function handleFiles(side, fileListArr){
+    return chainOp(side, () => handleFilesNow(side, fileListArr));
+  }
+
+  async function handleFilesNow(side, fileListArr){
     const bucket = state[side];
     for (const f of fileListArr){
       if (!/pdf$/i.test(f.type) && !/\.pdf$/i.test(f.name)) continue;
@@ -827,8 +852,14 @@
         "<span class='pages'>"+label+"</span>" +
         "<button title='Remove'>×</button>";
       row.querySelector("button").onclick = () => {
-        bucket.files.splice(idx,1);
-        handleFiles(side, []); // re-render with existing files, re-extract
+        // Resolve this file's CURRENT position (not the idx captured at render time) inside
+        // the same serialized queue, right before splicing — safe even if another queued
+        // add/remove for this side lands in between the click and this running.
+        chainOp(side, async () => {
+          const i = bucket.files.indexOf(f);
+          if (i !== -1) bucket.files.splice(i,1);
+          await handleFilesNow(side, []);
+        });
       };
       el.appendChild(row);
     });
