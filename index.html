@@ -1,5 +1,6 @@
 
 
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -389,12 +390,17 @@ function parseTransactionReport(text){
 
   const items = itemRows.map(r => {
     const saleFees = FEE_COLUMNS.reduce((sum,c) => sum + Math.abs(num(r[c])), 0);
+    const rawLabel = (r['Custom label'] || '').trim();
     return {
       Title: r['Item title'],
       ItemID: r['Item ID'],
       OrderNumber: r['Order number'],
       ItemSubtotal: num(r['Item subtotal']),
       SaleFees: saleFees,
+      // Ties (and anything else sold without a GarageSale listing) carry their client code
+      // directly in the Custom label / SKU column of the transaction report itself -- eBay
+      // prints '--' for an empty cell, so that's treated the same as blank.
+      CustomLabel: (rawLabel && rawLabel !== '--') ? rawLabel : null,
     };
   });
 
@@ -448,7 +454,11 @@ function process(){
     const matched = [], house = [], unmatched = [];
 
     items.forEach(it => {
-      const code = gsMap.hasOwnProperty(it.Title) ? gsMap[it.Title] : null;
+      // GarageSale export is the primary source (covers regular listings); for items that
+      // don't come through GarageSale at all -- ties being the main case -- fall back to the
+      // Custom label/SKU column already captured on the item from the transaction report.
+      const gsCode = gsMap.hasOwnProperty(it.Title) ? gsMap[it.Title] : null;
+      const code = gsCode || it.CustomLabel || null;
       it.ClientCode = code;
       if(!code){
         unmatched.push(it);
