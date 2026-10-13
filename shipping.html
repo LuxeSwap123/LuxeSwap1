@@ -888,6 +888,17 @@
   // comparing — same normalize() used for label/slip matching, so quote-style/whitespace
   // differences wash out on both sides identically.
   const CODE_SPAN_RE = /<span\s+style="display:\s*none;?\s*">([^<]*)<\/span>/i;
+  // Some exports (ties in particular) embed the code as an HTML comment instead of a hidden
+  // span -- e.g. "<!---DLTR0726--->". Checked first, same priority as index.html's extractCode().
+  const CODE_COMMENT_RE = /<!---(.*?)--->/;
+  function extractGaragesaleCode(desc){
+    if (!desc) return null;
+    let m = CODE_COMMENT_RE.exec(desc);
+    if (m && m[1].trim()) return m[1].trim();
+    m = CODE_SPAN_RE.exec(desc);
+    if (m && m[1].trim()) return m[1].trim();
+    return null;
+  }
   function titleKey(t){ return normalize((t||"").replace(/\s*\(Item ID:\s*\d+\)\s*$/i, "")); }
 
   function parseCSV(text){
@@ -929,8 +940,8 @@
       const title = (r[titleCol]||"").trim();
       if (!title) continue;
       total++;
-      const m = CODE_SPAN_RE.exec(r[descCol]||"");
-      if (m && m[1].trim()){ lookup.set(titleKey(title), m[1].trim()); withCode++; }
+      const code = extractGaragesaleCode(r[descCol]||"");
+      if (code){ lookup.set(titleKey(title), code); withCode++; }
     }
     return { fileName: file.name, lookup, total, withCode };
   }
