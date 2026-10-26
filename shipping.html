@@ -931,6 +931,7 @@
     if (table.length < 2) throw new Error("empty");
     const header = table[0].map(h => h.trim());
     const titleCol = header.indexOf("Title"), descCol = header.indexOf("Description");
+    const skuCol = header.indexOf("SKU");
     if (titleCol === -1 || descCol === -1) throw new Error("missing columns");
     const lookup = new Map();
     let total = 0, withCode = 0;
@@ -940,7 +941,15 @@
       const title = (r[titleCol]||"").trim();
       if (!title) continue;
       total++;
-      const code = extractGaragesaleCode(r[descCol]||"");
+      // Ties (and any other category GarageSale puts the code directly in SKU for) don't
+      // always get the hidden-span/comment marker in Description -- the GarageSale export's
+      // own SKU column IS the client code for those rows. Prefer the Description marker when
+      // present (it's the more common case), fall back to a non-placeholder SKU value.
+      let code = extractGaragesaleCode(r[descCol]||"");
+      if (!code && skuCol !== -1){
+        const sku = (r[skuCol]||"").trim();
+        if (sku && sku !== "--") code = sku;
+      }
       if (code){ lookup.set(titleKey(title), code); withCode++; }
     }
     return { fileName: file.name, lookup, total, withCode };
